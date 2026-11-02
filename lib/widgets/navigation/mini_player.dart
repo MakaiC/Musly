@@ -18,7 +18,14 @@ import 'package:musly/widgets/common/glass_container.dart';
 import 'package:musly/screens/player/now_playing_screen.dart';
 import 'package:musly/widgets/modals/song_options_modal.dart';
 
-const double _kGlassMiniPlayerHeight = 56;
+const double _kGlassMiniPlayerHeight = 60;
+
+// Glass artwork geometry. The art sits further in from the leading end than
+// from the top and bottom, and its corners are rounder, so its corners clear
+// the capsule's curve by about as much as its edges clear the straight sides.
+const double _kGlassArtSize = 40;
+const double _kGlassArtRadius = 10;
+const double _kGlassArtLeading = 12;
 
 class MiniPlayer extends StatelessWidget {
   final VoidCallback? onTap;
@@ -293,13 +300,12 @@ class _MiniPlayerRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    // Glass capsule: artwork inset equally from top/left/bottom so it nests
-    // inside the rounded end; controls tuck closer to the trailing curve.
-    final double artSize = isGlass ? 40 : 44;
-    final double artRadius = isGlass ? 8 : 6;
+    // Glass capsule: artwork nests inside the rounded end (see
+    // _kGlassArtLeading); controls tuck closer to the trailing curve.
+    final double artSize = isGlass ? _kGlassArtSize : 44;
+    final double artRadius = isGlass ? _kGlassArtRadius : 6;
     final EdgeInsets padding = isGlass
-        ? const EdgeInsets.only(
-            left: (_kGlassMiniPlayerHeight - 40) / 2, right: 6)
+        ? const EdgeInsets.only(left: _kGlassArtLeading, right: 8)
         : const EdgeInsets.symmetric(horizontal: 16);
     return Padding(
       padding: padding,
@@ -322,7 +328,7 @@ class _MiniPlayerRow extends StatelessWidget {
           else
             AlbumArtwork(
                 coverArt: coverArt, size: artSize, borderRadius: artRadius),
-          SizedBox(width: isGlass ? 10 : 12),
+          const SizedBox(width: 12),
           Expanded(
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,

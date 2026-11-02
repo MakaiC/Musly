@@ -15,14 +15,17 @@ import 'package:flutter/rendering.dart';
 @immutable
 class GlassStyle {
   const GlassStyle({
-    this.refraction = 18,
-    this.bevel = 20,
+    this.refraction = 22,
+    this.bevel = 22,
     this.dispersion = 0.1,
     this.frost = 0,
-    this.saturation = 1.2,
-    this.lightTintOpacity = 0.06,
-    this.darkTintOpacity = 0.05,
-    this.adaptiveTint = 0.45,
+    this.edgeFrost = 3,
+    this.edgeFrostWidth = 14,
+    this.edgeTint = 0.14,
+    this.saturation = 1.15,
+    this.lightTintOpacity = 0.02,
+    this.darkTintOpacity = 0.02,
+    this.adaptiveTint = 0.15,
     this.highlight = 1.0,
     this.elevation = 1.0,
     this.rimWidth = 1.0,
@@ -45,14 +48,28 @@ class GlassStyle {
   /// centre perfectly clear.
   final double frost;
 
+  /// Frost radius at the very rim. Frost eases from [frost] in the centre to
+  /// this at the edge across [edgeFrostWidth], so the glass reads as clear in
+  /// the middle and frosted toward its edges.
+  final double edgeFrost;
+
+  /// Width of the band along the edge that is frosted and tinted.
+  final double edgeFrostWidth;
+
+  /// Opacity of the milky veil at the very rim, easing to none across
+  /// [edgeFrostWidth].
+  final double edgeTint;
+
   /// Colour saturation applied to what is seen through the glass
   /// (1 = unchanged).
   final double saturation;
 
-  /// Base opacity of the theme-surface tint in light mode.
+  /// Base opacity of the theme-surface tint in light mode, across the whole
+  /// surface.
   final double lightTintOpacity;
 
-  /// Base opacity of the theme-surface tint in dark mode.
+  /// Base opacity of the theme-surface tint in dark mode, across the whole
+  /// surface.
   final double darkTintOpacity;
 
   /// Extra tint added where content behind would fight foreground legibility
@@ -72,22 +89,25 @@ class GlassStyle {
   /// glass falls back to a Gaussian blur of this sigma plus a thicker tint.
   final double fallbackBlurSigma;
 
-  /// Default: optically clear centre with lensing edges. Mini-player, tab
+  /// Default: see-through centre, frosted lensing edges. Mini-player, tab
   /// bar, toolbars.
   static const GlassStyle regular = GlassStyle();
 
   /// Even more transparent, for controls floating over artwork.
   static const GlassStyle clear = GlassStyle(
-    refraction: 12,
-    lightTintOpacity: 0.03,
-    darkTintOpacity: 0.03,
-    adaptiveTint: 0.2,
+    refraction: 14,
+    edgeFrost: 2,
+    edgeTint: 0.08,
+    lightTintOpacity: 0.0,
+    darkTintOpacity: 0.0,
+    adaptiveTint: 0.12,
     elevation: 0.6,
   );
 
-  /// Softly frosted, for larger surfaces carrying dense text.
+  /// Softly frosted all over, for larger surfaces carrying dense text.
   static const GlassStyle frosted = GlassStyle(
     frost: 4,
+    edgeFrost: 5,
     lightTintOpacity: 0.40,
     darkTintOpacity: 0.32,
     adaptiveTint: 0.3,
@@ -98,6 +118,9 @@ class GlassStyle {
     double? bevel,
     double? dispersion,
     double? frost,
+    double? edgeFrost,
+    double? edgeFrostWidth,
+    double? edgeTint,
     double? saturation,
     double? lightTintOpacity,
     double? darkTintOpacity,
@@ -112,6 +135,9 @@ class GlassStyle {
       bevel: bevel ?? this.bevel,
       dispersion: dispersion ?? this.dispersion,
       frost: frost ?? this.frost,
+      edgeFrost: edgeFrost ?? this.edgeFrost,
+      edgeFrostWidth: edgeFrostWidth ?? this.edgeFrostWidth,
+      edgeTint: edgeTint ?? this.edgeTint,
       saturation: saturation ?? this.saturation,
       lightTintOpacity: lightTintOpacity ?? this.lightTintOpacity,
       darkTintOpacity: darkTintOpacity ?? this.darkTintOpacity,
@@ -130,6 +156,9 @@ class GlassStyle {
       other.bevel == bevel &&
       other.dispersion == dispersion &&
       other.frost == frost &&
+      other.edgeFrost == edgeFrost &&
+      other.edgeFrostWidth == edgeFrostWidth &&
+      other.edgeTint == edgeTint &&
       other.saturation == saturation &&
       other.lightTintOpacity == lightTintOpacity &&
       other.darkTintOpacity == darkTintOpacity &&
@@ -145,6 +174,9 @@ class GlassStyle {
       bevel,
       dispersion,
       frost,
+      edgeFrost,
+      edgeFrostWidth,
+      edgeTint,
       saturation,
       lightTintOpacity,
       darkTintOpacity,
@@ -354,6 +386,12 @@ class _GlassContainerState extends State<GlassContainer> {
               bevel: style.bevel,
               dispersion: style.dispersion,
               frost: style.frost,
+              edgeFrost: style.edgeFrost,
+              edgeFrostWidth: style.edgeFrostWidth,
+              edgeTint: highContrast ? 0 : style.edgeTint,
+              // Dark glass frosts toward a lighter grey, so the rim reads as
+              // scattered light rather than a darker ring.
+              edgeMilk: isDark ? 0.3 : 0.0,
               saturation: style.saturation,
               highlight: highlight,
               tint: tintColor,
@@ -475,6 +513,10 @@ class _GlassOptics {
     required this.bevel,
     required this.dispersion,
     required this.frost,
+    required this.edgeFrost,
+    required this.edgeFrostWidth,
+    required this.edgeTint,
+    required this.edgeMilk,
     required this.saturation,
     required this.highlight,
     required this.tint,
@@ -487,6 +529,10 @@ class _GlassOptics {
   final double bevel;
   final double dispersion;
   final double frost;
+  final double edgeFrost;
+  final double edgeFrostWidth;
+  final double edgeTint;
+  final double edgeMilk;
   final double saturation;
   final double highlight;
   final Color tint;
@@ -501,6 +547,10 @@ class _GlassOptics {
       other.bevel == bevel &&
       other.dispersion == dispersion &&
       other.frost == frost &&
+      other.edgeFrost == edgeFrost &&
+      other.edgeFrostWidth == edgeFrostWidth &&
+      other.edgeTint == edgeTint &&
+      other.edgeMilk == edgeMilk &&
       other.saturation == saturation &&
       other.highlight == highlight &&
       other.tint == tint &&
@@ -508,8 +558,21 @@ class _GlassOptics {
       other.adaptiveTint == adaptiveTint;
 
   @override
-  int get hashCode => Object.hash(shape, refraction, bevel, dispersion, frost,
-      saturation, highlight, tint, tintOpacity, adaptiveTint);
+  int get hashCode => Object.hash(
+      shape,
+      refraction,
+      bevel,
+      dispersion,
+      frost,
+      edgeFrost,
+      edgeFrostWidth,
+      edgeTint,
+      edgeMilk,
+      saturation,
+      highlight,
+      tint,
+      tintOpacity,
+      adaptiveTint);
 }
 
 /// Applies the refraction shader to the backdrop behind [child].
@@ -661,7 +724,11 @@ class _LiquidGlassLayer extends BackdropFilterLayer {
       ..setFloat(15, o.tint.g)
       ..setFloat(16, o.tint.b)
       ..setFloat(17, o.tintOpacity)
-      ..setFloat(18, o.adaptiveTint);
+      ..setFloat(18, o.adaptiveTint)
+      ..setFloat(19, o.edgeFrost * s)
+      ..setFloat(20, o.edgeTint)
+      ..setFloat(21, math.min(o.edgeFrostWidth, half) * s)
+      ..setFloat(22, o.edgeMilk);
     return ui.ImageFilter.shader(_shader);
   }
 

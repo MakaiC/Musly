@@ -1,15 +1,15 @@
 # Liquid Glass theme: progress & handoff
 
-Last updated 2026-11-02 · branch `claude/brave-bohr-80alrl` · Flutter **3.47.7** (pinned in CI)
+Last updated 2026-11-02 · branch `claude/sleepy-gates-rm92oh` (continues `claude/brave-bohr-80alrl`) · Flutter **3.47.7** (pinned in CI)
 
 ## Status at a glance
 
 | Item | State |
 |---|---|
-| 1. Mini-player | ✅ Built, including the edge-refraction shader. **Not yet tested on a device.** |
+| 1. Mini-player | ✅ Built, plus a polish pass after the user's first look: proportions, clearer centre, frosted rim, stronger refraction. **Waiting on the user's review.** |
 | Floating-chrome layout + page scroll padding | ✅ Built (groundwork for steps 1 and 2) |
 | iOS UIScene lifecycle migration | ✅ Done. **Not yet compiled in Xcode**; the first build is the check |
-| 2. Bottom navigation bar | ⏭ **Next** |
+| 2. Bottom navigation bar | ⏭ **Next**, once the user signs off on the mini-player polish (see the spec under "Next in scope") |
 | 3. Now-playing full-screen view | Not started |
 | 4. Library grid (album/artist cards) | Not started |
 
@@ -41,6 +41,7 @@ Restyle these components with an iOS 26/27 Liquid Glass look, in this order: min
 | `9c5e92f` | Edge-refraction shader; `GlassContainer` rewrite; `shaders:` entry in pubspec |
 | `083ded4` | Restored CRLF in `pubspec.yaml` (the previous commit accidentally converted it to LF) |
 | `9007f21` | iOS UIScene lifecycle migration |
+| *(this session)* | Mini-player polish: 60pt capsule and art geometry; edge-weighted frost/veil, clearer centre and stronger refraction in the shader and `GlassStyle` |
 
 ## What's built
 
@@ -57,9 +58,10 @@ Every future glass component should use this. Don't restyle surfaces one by one.
 **Two rendering paths**
 
 - **Refraction shader**, used whenever `ui.ImageFilter.isShaderFilterSupported` is true (Impeller: iOS always, most current Android):
-  - The center is optically clear.
+  - The center is nearly fully see-through (2% base tint, light adaptive tint, a touch of vibrancy).
   - A curved bevel along the edge samples content from *outside* the glass and squeezes it into the rim (lensing), with chromatic dispersion and specular light on the bevel.
-  - An adaptive tint ramps up only for strongly conflicting content: bright content under dark glass, dark content under light glass. This keeps text legible without frosting the center.
+  - **Frost is concentrated at the edges:** across `edgeFrostWidth` from the rim, a grainy blur (12-tap Vogel disc, rotated per pixel so it reads as frosted grain rather than ghosting) and a milky veil ease in. On dark glass the veil is lifted 30% toward white, so the rim reads as scattered light, not a darker ring.
+  - An adaptive tint ramps up only for strongly conflicting content: bright content under dark glass, dark content under light glass. It's now small (0.15), per the user's request for a clear centre; legibility of white text over near-white art is the trade-off.
 - **Blur fallback** (web, Skia): `BackdropFilter.grouped` blur plus saturation, a thicker tint, and a sheen painter.
 
 **Layers, bottom to top:** `ClipRSuperellipse` (continuous corners) → shader or blur → child → rim painter (crisp 1px specular line) → shadow painter. The shadow is a *foreground* painter clipped to outside the shape, so the glass never refracts its own shadow.
@@ -68,17 +70,20 @@ Every future glass component should use this. Don't restyle surfaces one by one.
 
 | Field | `regular` (default) | `clear` | `frosted` |
 |---|---|---|---|
-| `refraction` (max pull-in at the rim) | 18 | 12 | 18 |
-| `bevel` (width of the bending band) | 20 | 20 | 20 |
+| `refraction` (max pull-in at the rim) | 22 | 14 | 22 |
+| `bevel` (width of the bending band) | 22 | 22 | 22 |
 | `dispersion` | 0.1 | 0.1 | 0.1 |
 | `frost` (center blur radius) | 0 | 0 | 4 |
-| `saturation` | 1.2 | 1.2 | 1.2 |
-| `lightTintOpacity` / `darkTintOpacity` | 0.06 / 0.05 | 0.03 / 0.03 | 0.40 / 0.32 |
-| `adaptiveTint` | 0.45 | 0.2 | 0.3 |
+| `edgeFrost` (blur radius at the rim) | 3 | 2 | 5 |
+| `edgeFrostWidth` (frosted band width) | 14 | 14 | 14 |
+| `edgeTint` (milky veil opacity at the rim) | 0.14 | 0.08 | 0.14 |
+| `saturation` | 1.15 | 1.15 | 1.15 |
+| `lightTintOpacity` / `darkTintOpacity` | 0.02 / 0.02 | 0 / 0 | 0.40 / 0.32 |
+| `adaptiveTint` | 0.15 | 0.12 | 0.3 |
 | `highlight`, `elevation`, `rimWidth` | 1, 1, 1 | 1, 0.6, 1 | 1, 1, 1 |
 | `fallbackBlurSigma` | 20 | 20 | 20 |
 
-Bevel/refraction 20/18 was picked over 16/14 (too subtle) and 24/22 (fisheye at the capsule ends).
+History: bevel/refraction started at 20/18, picked over 16/14 (too subtle) and 24/22 (fisheye at the capsule ends on the old 56pt capsule). The user then asked for noticeably stronger warping (~10–15%+), so it's now 22/22 (+22% pull-in, +10% band). The frost band is kept narrower than the bevel (14 vs 22) so the inner part of the bend stays crisp and the warp stays visible. Previous centre values were tint 0.06/0.05, adaptive 0.45, saturation 1.2; the user found that too opaque.
 
 ### Shader: `shaders/liquid_glass.frag` (registered under `flutter: shaders:` in pubspec)
 
@@ -92,14 +97,15 @@ Uniform float indices, set in `_LiquidGlassLayer._resolveFilter`. **If you add a
 | 10–13 | `u_optics` | Dispersion (0..1), frost radius, saturation, specular strength |
 | 14–17 | `u_tint` | Tint RGB + base opacity |
 | 18 | `u_adaptive` | Adaptive tint amount |
+| 19–22 | `u_edge` | Rim frost radius, rim veil opacity, frosted band width, veil lift toward white (0..1) |
 
 The shader compiles for Vulkan, Metal, GLES2/3 and SkSL (checked with `impellerc`).
 
 ### Mini-player (`lib/widgets/navigation/mini_player.dart`)
 
 Only the glass branch changed; the classic branch is untouched.
-- A 56px `GlassContainer.capsule` with 12px side margins and 4px top/bottom padding.
-- 40px artwork inset 8px, so it nests in the rounded end.
+- A 60px `GlassContainer.capsule` with 12px side margins and 4px top/bottom padding. It was 56px; the user found the art cramped.
+- 40px artwork with a 10px corner radius, inset 12px from the leading end and 10px top/bottom (`_kGlassArt*`). The bigger leading inset and rounder corners keep the art's corners about as far from the capsule's curve (~7px) as its edges are from the straight sides, instead of almost touching it.
 - Cupertino filled glyphs: `play_fill`/`pause_fill`/`forward_fill`/`heart(_fill)`. The heart/shuffle/repeat visibility settings are honored.
 - The progress bar is an inset rounded 2px hairline (in its own `RepaintBoundary`).
 
@@ -206,6 +212,8 @@ Implementation notes:
 - **`debugDisableShadows`** is true in tests, so shadows render hard-edged. Set it false in the test body and reset it **before the body ends**; the invariant check runs before `tearDown`.
 - **Screen captures:** use `RepaintBoundary.toImage(pixelRatio: dpr)` on a boundary at the **root** (origin 0,0). The shader's coordinates assume that.
 - **Fonts for realistic renders:** Roboto and MaterialIcons from the SDK's `bin/cache/artifacts/material_fonts`, CupertinoIcons from the pub cache.
+- **Switching light/dark between captures:** set `themeAnimationDuration: Duration.zero` on the harness `MaterialApp`. Otherwise a re-pumped app is caught mid-way through its 200ms theme lerp, and you get gray icons and a half-lerped glass tint that look like app bugs but aren't.
+- **Image loads in captures:** a local-file `coverArt` path works for `AlbumArtwork`. Pump inside `tester.runAsync` a few times before capturing, and throw away the first capture, which often misses the image.
 - **`MainScreen` in tests:**
   - It needs `RecommendationService` and `LocalMusicService` on top of `createTestApp`'s providers, plus a fake `PlayerProvider` that overrides `currentSong` and friends.
   - Mounting it twice in one process throws at teardown (`UsageTimeService` singleton disposed twice). That's a harness artifact, not an app bug.

@@ -4,8 +4,10 @@
 // its edge. Across the bevel the surface curves away, so light reaching the
 // eye there was bent in from *outside* the shape: content around the glass is
 // pulled into and squeezed along the rim (lensing), with a little chromatic
-// dispersion. The centre passes the backdrop through untouched apart from an
-// optional light frost, a vibrancy boost and an adaptive tint.
+// dispersion. The centre passes the backdrop through nearly untouched (an
+// optional light frost, a vibrancy boost and a faint adaptive tint), while
+// frost and tint thicken toward the rim, so the glass reads as clear in the
+// middle and frosted at its edges.
 //
 // Coordinates: as a BackdropFilter, FlutterFragCoord() is in render-target
 // pixels (top-left origin on every backend) and the input texture is the
@@ -24,6 +26,9 @@ uniform vec4 u_optics;        // Dispersion (0..1), frost radius (px),
                               // saturation, specular strength.
 uniform vec4 u_tint;          // Tint colour (straight alpha) and base opacity.
 uniform float u_adaptive;     // Extra tint where content would fight legibility.
+uniform vec4 u_edge;          // Rim frost radius (px), rim veil opacity,
+                              // width of the frosted band (px), how far the
+                              // veil is lifted toward white (0..1).
 
 uniform sampler2D u_texture;  // Set by the engine: the backdrop.
 
@@ -57,18 +62,31 @@ vec3 tap(vec2 px) {
   return texture(u_texture, uv).rgb;
 }
 
-// Backdrop colour at px, optionally softened by a small 9-tap disc.
-vec3 scene(vec2 px, float frost) {
+// Per-pixel pseudo-random angle (interleaved gradient noise), so the frost
+// kernel is rotated differently at every pixel. That turns the ghosting a
+// small kernel would leave into a fine grain, like real frosted glass.
+float grainAngle(vec2 p) {
+  return 6.2831853 *
+         fract(52.9829189 * fract(dot(p, vec2(0.06711056, 0.00583715))));
+}
+
+// Backdrop colour at px, optionally softened by a 12-tap Vogel disc of radius
+// `frost` (plus the centre), weighted toward the middle.
+vec3 scene(vec2 px, float frost, float angle) {
   if (frost < 0.5) {
     return tap(px);
   }
-  float d = frost * 0.7071;
-  vec3 c = tap(px) * 0.20;
-  c += (tap(px + vec2(frost, 0.0)) + tap(px - vec2(frost, 0.0)) +
-        tap(px + vec2(0.0, frost)) + tap(px - vec2(0.0, frost))) * 0.12;
-  c += (tap(px + vec2(d, d)) + tap(px - vec2(d, d)) +
-        tap(px + vec2(d, -d)) + tap(px - vec2(d, -d))) * 0.08;
-  return c;
+  vec3 col = tap(px);
+  float total = 1.0;
+  for (int i = 0; i < 12; i++) {
+    float f = (float(i) + 0.5) / 12.0;
+    float r = sqrt(f);
+    float a = float(i) * 2.3999632 + angle;   // Golden angle.
+    float w = 1.0 - 0.6 * f;
+    col += tap(px + vec2(cos(a), sin(a)) * r * frost) * w;
+    total += w;
+  }
+  return col / total;
 }
 
 void main() {
@@ -89,16 +107,22 @@ void main() {
   vec2 n = outwardNormal(q, halfSize, u_shape.w);
   vec2 offset = n * refraction * lens;
 
+  // Frosted band: 1 at the rim, easing to 0 a band-width in, where the glass
+  // is clear.
+  float edge = 1.0 - clamp(depth / max(u_edge.z, 1.0), 0.0, 1.0);
+  edge = edge * edge * (3.0 - 2.0 * edge);
+
   float dispersion = u_optics.x;
-  float frost = u_optics.y;
+  float frost = mix(u_optics.y, u_edge.x, edge);
+  float angle = frost < 0.5 ? 0.0 : grainAngle(p);
   vec3 col;
   if (dot(offset, offset) * dispersion * dispersion < 0.25) {
-    col = scene(p + offset, frost);
+    col = scene(p + offset, frost, angle);
   } else {
     // Shorter wavelengths bend more.
-    col.r = scene(p + offset * (1.0 - dispersion), frost).r;
-    col.g = scene(p + offset, frost).g;
-    col.b = scene(p + offset * (1.0 + dispersion), frost).b;
+    col.r = scene(p + offset * (1.0 - dispersion), frost, angle).r;
+    col.g = scene(p + offset, frost, angle).g;
+    col.b = scene(p + offset * (1.0 + dispersion), frost, angle).b;
   }
 
   // Vibrancy.
@@ -111,6 +135,10 @@ void main() {
   float fight = dot(u_tint.rgb, kLuma) > 0.5 ? 1.0 - lum : lum;
   fight = smoothstep(0.35, 1.0, fight);
   col = mix(col, u_tint.rgb, clamp(u_tint.a + u_adaptive * fight, 0.0, 1.0));
+  // Frosted rim: a milky veil of the tint lifted toward white, so it reads as
+  // scattered light rather than a darker ring on dark glass.
+  vec3 milk = mix(u_tint.rgb, vec3(1.0), u_edge.w);
+  col = mix(col, milk, clamp(u_edge.y * edge, 0.0, 1.0));
 
   // Light from the top-left catching the bevel, and a fainter internal
   // reflection on the opposite edge.
