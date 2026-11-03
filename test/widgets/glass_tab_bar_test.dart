@@ -73,8 +73,33 @@ double _tabX(WidgetTester tester, int i) => _bar(tester).left + 4 + 120 * (i + 0
 double _bubbleX(WidgetTester tester) =>
     tester.getRect(find.byKey(GlassTabBar.bubbleKey)).center.dx;
 
-Color? _iconColor(WidgetTester tester, IconData icon) =>
-    tester.widget<Icon>(find.byIcon(icon)).color;
+const _neutral = Color(0xFF6E6E73); // light theme
+
+/// Whether the layer with [key] is visible at [global] (a screen point),
+/// according to its clip.
+bool _layerShows(WidgetTester tester, Key key, Offset global) {
+  final finder = find.byKey(key);
+  final clip = tester.widget<ClipPath>(finder);
+  final box = tester.renderObject<RenderBox>(finder);
+  return clip.clipper!.getClip(box.size).contains(box.globalToLocal(global));
+}
+
+/// The colour seen at [global]: accent where the accented layer shows
+/// through the bubble, neutral where the neutral layer shows. Exactly one
+/// layer shows at any point.
+Color _colourAt(WidgetTester tester, Offset global) {
+  final accent = _layerShows(tester, GlassTabBar.accentLayerKey, global);
+  final neutral = _layerShows(tester, GlassTabBar.neutralLayerKey, global);
+  expect(accent, isNot(neutral), reason: 'exactly one layer at $global');
+  return accent ? _accent : _neutral;
+}
+
+Offset _tab(WidgetTester tester, int i) =>
+    Offset(_tabX(tester, i), _bar(tester).center.dy);
+
+Iterable<Icon> _layerIcons(WidgetTester tester, Key key) => tester
+    .widgetList<Icon>(find.descendant(
+        of: find.byKey(key), matching: find.byType(Icon)));
 
 void main() {
   testWidgets('bubble starts behind the selected tab, which uses the accent',
@@ -83,10 +108,26 @@ void main() {
     await h.pump(tester);
 
     expect(_bubbleX(tester), moreOrLessEquals(_tabX(tester, 1), epsilon: 0.5));
-    expect(find.byIcon(CupertinoIcons.collections_solid), findsOneWidget);
-    expect(_iconColor(tester, CupertinoIcons.collections_solid), _accent);
-    expect(find.byIcon(CupertinoIcons.music_house), findsOneWidget);
-    expect(_iconColor(tester, CupertinoIcons.music_house), isNot(_accent));
+    expect(_colourAt(tester, _tab(tester, 1)), _accent);
+    expect(_colourAt(tester, _tab(tester, 0)), _neutral);
+    expect(_colourAt(tester, _tab(tester, 2)), _neutral);
+
+    // The accented layer is filled icons in the accent; the neutral layer is
+    // outline icons in gray.
+    final accented = _layerIcons(tester, GlassTabBar.accentLayerKey).toList();
+    expect(accented.map((i) => i.icon), [
+      CupertinoIcons.music_house_fill,
+      CupertinoIcons.collections_solid,
+      CupertinoIcons.search,
+    ]);
+    expect(accented.map((i) => i.color), everyElement(_accent));
+    final plain = _layerIcons(tester, GlassTabBar.neutralLayerKey).toList();
+    expect(plain.map((i) => i.icon), [
+      CupertinoIcons.music_house,
+      CupertinoIcons.collections,
+      CupertinoIcons.search,
+    ]);
+    expect(plain.map((i) => i.color), everyElement(_neutral));
   });
 
   testWidgets('tap selects and the bubble slides over with an eased transition',
@@ -108,8 +149,8 @@ void main() {
     // ...and settled on the tab well under half a second later.
     await tester.pump(const Duration(milliseconds: 300));
     expect(_bubbleX(tester), moreOrLessEquals(_tabX(tester, 2), epsilon: 0.5));
-    expect(_iconColor(tester, CupertinoIcons.search), _accent);
-    expect(_iconColor(tester, CupertinoIcons.music_house), isNot(_accent));
+    expect(_colourAt(tester, _tab(tester, 2)), _accent);
+    expect(_colourAt(tester, _tab(tester, 0)), _neutral);
     await tester.pumpAndSettle();
   });
 
@@ -146,10 +187,8 @@ void main() {
     await tester.pump(const Duration(milliseconds: 200)); // catch-up done
     expect(_bubbleX(tester), moreOrLessEquals(x, epsilon: 0.5));
     expect(h.selections, isEmpty, reason: 'nothing selected mid-drag');
-    expect(find.byIcon(CupertinoIcons.collections_solid), findsOneWidget);
-    expect(find.byIcon(CupertinoIcons.music_house_fill), findsNothing);
-    expect(
-        _iconColor(tester, CupertinoIcons.music_house), isNot(_accent));
+    expect(_colourAt(tester, _tab(tester, 1)), _accent);
+    expect(_colourAt(tester, _tab(tester, 0)), _neutral);
 
     // Continuous: every small move moves the bubble by the same amount.
     for (var i = 0; i < 5; i++) {
@@ -160,7 +199,7 @@ void main() {
 
     await moveTo(_tabX(tester, 2));
     expect(_bubbleX(tester), moreOrLessEquals(x, epsilon: 0.5));
-    expect(_iconColor(tester, CupertinoIcons.search), _accent);
+    expect(_colourAt(tester, _tab(tester, 2)), _accent);
     expect(h.selections, isEmpty);
 
     await gesture.up();
@@ -172,64 +211,47 @@ void main() {
   });
 
   testWidgets(
-      'icon colour snaps at the hit-zone boundary instead of blending',
-      (tester) async {
+      'the bubble is a window: colour shows only inside it, and its edge '
+      'splits an icon it is crossing', (tester) async {
     final h = _Harness();
     await h.pump(tester);
     final y = _bar(tester).center.dy;
-    const neutral = Color(0xFF6E6E73); // light theme
-    expect(_iconColor(tester, CupertinoIcons.collections), neutral);
 
-    // Boundary between Home and Library, in screen x.
-    final boundary = _bar(tester).left + 4 + 120;
     var x = _tabX(tester, 0);
     final gesture = await tester.startGesture(Offset(x, y));
     Future<void> moveTo(double target) async {
       while ((target - x).abs() > 0.01) {
-        x += (target - x).clamp(-4.0, 4.0);
+        x += (target - x).clamp(-1.0, 1.0);
         await gesture.moveTo(Offset(x, y));
         await tester.pump(const Duration(milliseconds: 16));
       }
     }
 
-    Color? homeColor() {
-      final f = find.byIcon(CupertinoIcons.music_house);
-      return tester.widget<Icon>(f.evaluate().isEmpty
-              ? find.byIcon(CupertinoIcons.music_house_fill)
-              : f)
-          .color;
+    // Get the drag going, then park the bubble so its left edge runs
+    // through the middle of the Home icon.
+    await moveTo(x + 30);
+    await tester.pump(const Duration(milliseconds: 300)); // catch-up + lift
+    final halfWidth =
+        tester.getRect(find.byKey(GlassTabBar.bubbleKey)).width / 2;
+    await moveTo(_tabX(tester, 0) + halfWidth);
+    final bubble = tester.getRect(find.byKey(GlassTabBar.bubbleKey));
+    expect(bubble.left, moreOrLessEquals(_tabX(tester, 0), epsilon: 0.5));
+
+    // Home's icon is half gray (outside) and half accent (under the bubble).
+    final home = _tab(tester, 0);
+    expect(_colourAt(tester, home - const Offset(5, 0)), _neutral);
+    expect(_colourAt(tester, home + const Offset(5, 0)), _accent);
+
+    // The split follows the edge to the pixel, on both sides of the bubble.
+    for (final edge in [bubble.left, bubble.right]) {
+      final inward = edge == bubble.left ? 1.0 : -1.0;
+      expect(_colourAt(tester, Offset(edge + inward, y)), _accent);
+      expect(_colourAt(tester, Offset(edge - inward, y)), _neutral);
     }
 
-    Color? libraryColor() {
-      final f = find.byIcon(CupertinoIcons.collections);
-      return tester.widget<Icon>(f.evaluate().isEmpty
-              ? find.byIcon(CupertinoIcons.collections_solid)
-              : f)
-          .color;
-    }
-
-    // Just short of the boundary: Home fully lit, Library fully neutral.
-    await moveTo(boundary - 2);
-    await tester.pump(const Duration(milliseconds: 200)); // catch-up done
-    expect(homeColor(), _accent);
-    expect(libraryColor(), neutral);
-
-    // Just past it: an instant, complete swap.
-    await moveTo(boundary + 2);
-    expect(homeColor(), neutral);
-    expect(libraryColor(), _accent);
-
-    // Every frame across the whole drag: only pure accent or pure neutral.
-    while (x < _tabX(tester, 2)) {
-      await moveTo(x + 4);
-      final colours = [
-        homeColor(),
-        libraryColor(),
-        _iconColor(tester, CupertinoIcons.search),
-      ];
-      expect(colours.where((c) => c == _accent), hasLength(1));
-      expect(colours.where((c) => c == neutral), hasLength(2));
-    }
+    // As the bubble slides on, Home's right half goes back to gray.
+    await moveTo(x + 10);
+    expect(_colourAt(tester, home + const Offset(5, 0)), _neutral);
 
     await gesture.up();
     await tester.pumpAndSettle();
