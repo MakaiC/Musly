@@ -234,7 +234,7 @@ The user's spec was Apple Music's interaction model, not a static bar: a selecti
 
 - A `GlassContainer.capsule` (62pt, same 12pt side margins as the mini-player) inside the chrome's shared `BackdropGroup`. Exported from `widgets.dart`. Takes `items` (`GlassTabItem`: icon, activeIcon, label), `currentIndex`, `onTabSelected`.
 - **The bubble's position is one `AnimationController.unbounded` (`_pos`) in tab units** (0 = first tab's centre). Everything is derived from it each frame:
-  - **Highlight** per tab is continuous: fully lit within 0.15 tabs of the bubble, fading to none at 0.75. The filled icon variant shows above 0.5. So whichever tab the bubble covers lights up, and a tab the bubble passes over glows briefly.
+  - **The bubble is a colour window (the user's call, 2026-11-02, matching Apple Music):** two identical rows of tabs are stacked, one gray (outline icons) and one accent (filled icons). The accent row is clipped to the bubble's rounded rect and the gray row to everything outside it (`_BubbleClipper`, keys `accentLayerKey`/`neutralLayerKey`). As an edge crosses an icon, the part under the bubble is blue and the rest gray, pixel for pixel. Colours never fade or interpolate; only the bubble moves. Both rows share metrics (labels w600 in both) so they line up at the edge. Semantics live in a separate invisible row. The lens magnification during a drag eases with distance (`_proximity`) and is applied equally to both rows. *(An earlier attempt the same day snapped the whole tab's colour when the bubble's centre crossed a slot boundary; the user rejected it.)*
   - **Liquid stretch:** while `_pos` animates, the bubble lengthens up to 18% (and flattens a little) with its velocity.
 - **Two separate animation paths, as the user suggested:**
   - **Tap:** `onTabSelected` fires, the parent changes `currentIndex`, and `didUpdateWidget` runs `_slideTo`. That's an `animateTo` with `Cubic(0.3, 0, 0.1, 1)` over 260ms + 60ms per tab travelled (~320ms to a neighbour), so it gets going immediately and eases into place. External index changes (back button, `NavigationHelper`) take the same path.
@@ -245,7 +245,7 @@ The user's spec was Apple Music's interaction model, not a static bar: a selecti
 - **Semantics:** each tab is a button with `selected` and a tap action.
 - **`main_screen.dart`:** `_buildGlassBottomNav` now just builds a `GlassTabBar`. The old inline tap closure became `_onGlassTabSelected`, with an identical body: `popUntil` the first route, the 11-taps-on-Search easter egg, `setState(_currentIndex)`. A drag released onto Search counts as one easter-egg tap. The classic `_buildBottomNav` is untouched.
 - The bubble is **painted** (`_BubblePainter`), not a nested backdrop filter. A true magnifying-lens bubble that refracts the icons under it would need a nested, ungrouped backdrop and a magnification mode in the shader; that's a possible follow-up.
-- **Tests:** `test/widgets/glass_tab_bar_test.dart` (9 tests) covers the initial state, the tap slide (not a teleport, settled in <½s), slow-drag 1:1 tracking with highlight and haptics, release over the current tab, the flick projection, the bubble returning when a selection isn't adopted, external index changes, reduce motion and semantics.
+- **Tests:** `test/widgets/glass_tab_bar_test.dart` (10 tests) covers the initial state, the tap slide (not a teleport, settled in <½s), slow-drag 1:1 tracking with highlight and haptics, the bubble-as-window masking (an edge splits an icon into gray outside and accent inside, following the edge exactly), release over the current tab, the flick projection, the bubble returning when a selection isn't adopted, external index changes, reduce motion and semantics.
 
 ### Now-playing (`lib/screens/player/now_playing_screen.dart` + `lib/widgets/now_playing/*`)
 
@@ -344,8 +344,12 @@ Builds with the iOS 27 SDK crash on launch without it (`UIApplicationEvaluateRun
   - **Center clarity vs. legibility over bright art:** `adaptiveTint`, the tint opacities, `frost`.
   - **Scroll smoothness.** Each is a single `GlassStyle` field.
 - **Now-playing:** waiting on the user's review (they got before/after renders). Likely knobs: the backdrop blur/saturation/drift (`_BlurredArtwork`), the scrim curve (`ArtworkBackdrop`), the pause shrink (`_buildArtwork`), button sizes, and `GlassStyle.control`.
+<<<<<<< HEAD
 - **Tab bar:** tuning knobs if the user asks (they got GIFs of the tap slide and drag). Likely tuning knobs: tap slide duration/curve (`_slideTo`, `_kSlideCurve`), snap spring (`_kSnapSpring`), lift size (`_kLiftScale`), bubble fill (`_BubblePainter`), and the highlight fade (`_highlight`).
 - **Sliders:** waiting on the user's look on device. Knobs: idle/active thickness, hit height, resize duration (`kThickBar*`). **Classic mode changed too**: the user's request covered both sliders without a mode qualifier, unlike the "classic stays unchanged" rule for glass work. If they want classic back, gate on `VolumeSlider.glass` and add a `glass` flag to `PlaybackProgressSlider`.
+=======
+- **Tab bar:** tuning knobs if the user asks (they got GIFs of the tap slide and drag). Likely tuning knobs: tap slide duration/curve (`_slideTo`, `_kSlideCurve`), snap spring (`_kSnapSpring`), lift size (`_kLiftScale`), bubble fill (`_BubblePainter`), and the lens falloff (`_proximity`). Colour comes only from the bubble mask; don't reintroduce per-tab colour fades or snaps.
+>>>>>>> navbar-work
 - **Legibility over near-white art in dark mode:** with the centre this clear (adaptive tint 0.15), white text over a near-white cover is hard to read. The user was told. Options: raise `adaptiveTint`, or adaptive foreground (glyphs flip dark over bright content, as iOS does), which is a bigger feature.
 - **Dialogs on the inner navigator:** the chrome stays above the dim barrier, as in classic mode. iOS also dims the tab bar. Possible follow-up.
 - **Light mode:** the adaptive tint lifts near-black content behind the glass toward gray. This is by design for legibility, and tunable.

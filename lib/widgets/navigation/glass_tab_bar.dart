@@ -26,8 +26,11 @@ class GlassTabItem {
 /// iOS 26-style floating Liquid Glass tab bar.
 ///
 /// A glass capsule ([GlassContainer]) holding the tabs, with a selection
-/// "bubble" behind the selected one. The icon and label under the bubble take
-/// the theme accent; the others stay neutral.
+/// "bubble" behind the selected one. The bubble is a window onto an accented
+/// copy of the tabs: whatever part of an icon or label lies under the bubble
+/// is drawn in the theme accent, and everything outside it stays neutral. As
+/// the bubble slides, its edges reveal and hide the colour exactly where they
+/// cross; colours never fade. Only the bubble's position animates.
 ///
 /// The bubble moves along two separate paths:
 ///  * **Tap:** [onTabSelected] fires, and when [currentIndex] changes the
@@ -61,6 +64,11 @@ class GlassTabBar extends StatefulWidget {
 
   /// Key of the selection bubble, for tests.
   static const Key bubbleKey = ValueKey<String>('GlassTabBar.bubble');
+
+  /// Keys of the neutral (outside the bubble) and accented (inside the
+  /// bubble) tab layers, for tests.
+  static const Key neutralLayerKey = ValueKey<String>('GlassTabBar.neutral');
+  static const Key accentLayerKey = ValueKey<String>('GlassTabBar.accent');
 
   @override
   State<GlassTabBar> createState() => _GlassTabBarState();
@@ -281,9 +289,11 @@ class _GlassTabBarState extends State<GlassTabBar>
 
   // ---------------------------------------------------------------- build
 
-  /// How strongly tab [i] is lit, from how close the bubble is to it: fully
-  /// lit when the bubble sits on it, fading out as it moves away.
-  double _highlight(int i, double pos) {
+  /// How close the bubble is to tab [i], 1 when centred on it and easing to 0
+  /// as it moves away. Drives only the lens magnification. Colour is not
+  /// computed per tab at all: it comes from which layer shows through where
+  /// (see [build]).
+  double _proximity(int i, double pos) {
     final d = (pos - i).abs();
     final t = ((d - 0.15) / 0.6).clamp(0.0, 1.0);
     return 1 - t * t * (3 - 2 * t);
@@ -327,20 +337,67 @@ class _GlassTabBarState extends State<GlassTabBar>
                   (1 + _kLiftScale * lift) *
                   (1 + stretch);
               final centre = _kBubbleInset + _slotWidth * (pos + 0.5);
+              final bubbleRect = Rect.fromCenter(
+                center: Offset(centre, height / 2),
+                width: bubbleWidth,
+                height: bubbleHeight,
+              );
+              final bubbleShape = RRect.fromRectAndRadius(
+                bubbleRect,
+                Radius.circular(bubbleRect.shortestSide / 2),
+              );
+
+              // Two identical rows of tabs, one neutral and one accented,
+              // laid out on the same grid. The bubble is a window: the
+              // accented row shows only through the bubble's shape and the
+              // neutral row only outside it. So as the bubble's edge crosses
+              // an icon, the part under the bubble turns accent and the rest
+              // stays gray, pixel by pixel. Nothing fades.
+              Widget row({required bool accented}) => Padding(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: _kBubbleInset),
+                    child: Row(
+                      children: [
+                        for (var i = 0; i < _count; i++)
+                          Expanded(
+                            child: _TabSlot(
+                              item: widget.items[i],
+                              accented: accented,
+                              color: accented ? accent : neutral,
+                              scale: 1 + 0.12 * lift * _proximity(i, pos),
+                            ),
+                          ),
+                      ],
+                    ),
+                  );
 
               return Stack(
                 clipBehavior: Clip.none,
                 children: [
-                  Positioned(
-                    left: centre - bubbleWidth / 2,
-                    top: (height - bubbleHeight) / 2,
-                    width: bubbleWidth,
-                    height: bubbleHeight,
+                  Positioned.fromRect(
+                    rect: bubbleRect,
                     child: CustomPaint(
                       key: GlassTabBar.bubbleKey,
                       painter: _BubblePainter(isDark: isDark, lift: lift),
                     ),
                   ),
+                  // Neutral tabs, everywhere except under the bubble.
+                  Positioned.fill(
+                    child: ClipPath(
+                      key: GlassTabBar.neutralLayerKey,
+                      clipper: _BubbleClipper(bubbleShape, outside: true),
+                      child: ExcludeSemantics(child: row(accented: false)),
+                    ),
+                  ),
+                  // Accented tabs, only under the bubble.
+                  Positioned.fill(
+                    child: ClipPath(
+                      key: GlassTabBar.accentLayerKey,
+                      clipper: _BubbleClipper(bubbleShape, outside: false),
+                      child: ExcludeSemantics(child: row(accented: true)),
+                    ),
+                  ),
+                  // One semantics node per tab, independent of the visuals.
                   Positioned.fill(
                     left: _kBubbleInset,
                     right: _kBubbleInset,
@@ -348,14 +405,13 @@ class _GlassTabBarState extends State<GlassTabBar>
                       children: [
                         for (var i = 0; i < _count; i++)
                           Expanded(
-                            child: _TabSlot(
-                              item: widget.items[i],
-                              highlight: _highlight(i, pos),
-                              magnify: lift,
-                              accent: accent,
-                              neutral: neutral,
+                            child: Semantics(
+                              container: true,
+                              button: true,
                               selected: i == widget.currentIndex,
-                              onActivate: () => widget.onTabSelected(i),
+                              label: widget.items[i].label,
+                              onTap: () => widget.onTabSelected(i),
+                              child: const SizedBox.expand(),
                             ),
                           ),
                       ],
@@ -371,66 +427,75 @@ class _GlassTabBarState extends State<GlassTabBar>
   }
 }
 
+/// Clips to the bubble's shape, or to everything outside it.
+class _BubbleClipper extends CustomClipper<Path> {
+  const _BubbleClipper(this.shape, {required this.outside});
+
+  final RRect shape;
+  final bool outside;
+
+  @override
+  Path getClip(Size size) {
+    final bubble = Path()..addRRect(shape);
+    if (!outside) return bubble;
+    // Generous bounds so the magnified icons aren't cut at the bar's edge.
+    return Path()
+      ..fillType = PathFillType.evenOdd
+      ..addRect((Offset.zero & size).inflate(size.height))
+      ..addRRect(shape);
+  }
+
+  @override
+  bool shouldReclip(_BubbleClipper old) =>
+      old.shape != shape || old.outside != outside;
+}
+
+/// One tab's icon and label, in a single colour. The neutral and accented
+/// rows use identical metrics so the two layers line up exactly at the
+/// bubble's edge.
 class _TabSlot extends StatelessWidget {
   const _TabSlot({
     required this.item,
-    required this.highlight,
-    required this.magnify,
-    required this.accent,
-    required this.neutral,
-    required this.selected,
-    required this.onActivate,
+    required this.accented,
+    required this.color,
+    required this.scale,
   });
 
   final GlassTabItem item;
-  final double highlight;
 
-  /// 0..1: how lifted the bubble is. Tabs under a lifted bubble grow a
-  /// little, as if seen through a lens.
-  final double magnify;
-  final Color accent;
-  final Color neutral;
-  final bool selected;
-  final VoidCallback onActivate;
+  /// The accented copy uses the filled icon.
+  final bool accented;
+  final Color color;
+
+  /// Lens magnification while a lifted bubble is near.
+  final double scale;
 
   @override
   Widget build(BuildContext context) {
-    final color = Color.lerp(neutral, accent, highlight)!;
-    final scale = 1 + 0.12 * magnify * highlight;
-    return Semantics(
-      container: true,
-      button: true,
-      selected: selected,
-      label: item.label,
-      onTap: onActivate,
-      child: ExcludeSemantics(
-        child: Transform.scale(
-          scale: scale,
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(
-                highlight >= 0.5 ? item.activeIcon : item.icon,
-                color: color,
-                size: 22,
-              ),
-              const SizedBox(height: 2),
-              Text(
-                item.label,
-                maxLines: 1,
-                overflow: TextOverflow.fade,
-                softWrap: false,
-                style: TextStyle(
-                  fontSize: 10,
-                  height: 1.2,
-                  fontWeight: FontWeight.lerp(
-                      FontWeight.w500, FontWeight.w600, highlight),
-                  color: color,
-                ),
-              ),
-            ],
+    return Transform.scale(
+      scale: scale,
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(
+            accented ? item.activeIcon : item.icon,
+            color: color,
+            size: 22,
           ),
-        ),
+          const SizedBox(height: 2),
+          Text(
+            item.label,
+            maxLines: 1,
+            overflow: TextOverflow.fade,
+            softWrap: false,
+            style: TextStyle(
+              fontSize: 10,
+              height: 1.2,
+              fontWeight: FontWeight.w600,
+              color: color,
+            ),
+          ),
+        ],
       ),
     );
   }
