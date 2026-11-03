@@ -1,16 +1,16 @@
 # Liquid Glass theme: progress & handoff
 
-Last updated 2026-11-02 · branch `claude/sleepy-gates-rm92oh` (continues `claude/brave-bohr-80alrl`) · Flutter **3.47.7** (pinned in CI)
+Last updated 2026-11-03 · branch `claude/sleepy-gates-rm92oh` (continues `claude/brave-bohr-80alrl`) · Flutter **3.47.7** (pinned in CI)
 
 ## Status at a glance
 
 | Item | State |
 |---|---|
-| 1. Mini-player | ✅ Built, plus a polish pass after the user's first look: proportions, clearer centre, frosted rim, stronger refraction. **Waiting on the user's review.** |
+| 1. Mini-player | ✅ Built, plus a polish pass after the user's first look: proportions, clearer centre, frosted rim, stronger refraction. The user approved it from renders and asked to move on. |
 | Floating-chrome layout + page scroll padding | ✅ Built (groundwork for steps 1 and 2) |
 | iOS UIScene lifecycle migration | ✅ Done. **Not yet compiled in Xcode**; the first build is the check |
-| 2. Bottom navigation bar | ⏭ **Next**, once the user signs off on the mini-player polish (see the spec under "Next in scope") |
-| 3. Now-playing full-screen view | Not started |
+| 2. Bottom navigation bar | ✅ Built: `GlassTabBar` with a drag-to-move / tap-to-slide selection bubble. **Waiting on the user's review.** |
+| 3. Now-playing full-screen view | ⏭ Next, once the user signs off on the tab bar |
 | 4. Library grid (album/artist cards) | Not started |
 
 Nothing has run on a real device yet. The user's next step is building to their iPhone.
@@ -41,7 +41,8 @@ Restyle these components with an iOS 26/27 Liquid Glass look, in this order: min
 | `9c5e92f` | Edge-refraction shader; `GlassContainer` rewrite; `shaders:` entry in pubspec |
 | `083ded4` | Restored CRLF in `pubspec.yaml` (the previous commit accidentally converted it to LF) |
 | `9007f21` | iOS UIScene lifecycle migration |
-| *(this session)* | Mini-player polish: 60pt capsule and art geometry; edge-weighted frost/veil, clearer centre and stronger refraction in the shader and `GlassStyle` |
+| `74759d1` | Mini-player polish: 60pt capsule and art geometry; edge-weighted frost/veil, clearer centre and stronger refraction in the shader and `GlassStyle` |
+| *(this session)* | `GlassTabBar` (`lib/widgets/navigation/glass_tab_bar.dart`) + its widget tests; `_buildGlassBottomNav` uses it |
 
 ## What's built
 
@@ -109,6 +110,25 @@ Only the glass branch changed; the classic branch is untouched.
 - Cupertino filled glyphs: `play_fill`/`pause_fill`/`forward_fill`/`heart(_fill)`. The heart/shuffle/repeat visibility settings are honored.
 - The progress bar is an inset rounded 2px hairline (in its own `RepaintBoundary`).
 
+### Tab bar: `GlassTabBar` (`lib/widgets/navigation/glass_tab_bar.dart`)
+
+The user's spec was Apple Music's interaction model, not a static bar: a selection bubble behind the selected tab, whose icon and label take the **theme accent** (the user chose the accent over hard-coded blue). Unselected tabs are neutral gray (`#A1A1A6` dark / `#6E6E73` light).
+
+- A `GlassContainer.capsule` (62pt, same 12pt side margins as the mini-player) inside the chrome's shared `BackdropGroup`. Exported from `widgets.dart`. Takes `items` (`GlassTabItem`: icon, activeIcon, label), `currentIndex`, `onTabSelected`.
+- **The bubble's position is one `AnimationController.unbounded` (`_pos`) in tab units** (0 = first tab's centre). Everything is derived from it each frame:
+  - **Highlight** per tab is continuous: fully lit within 0.15 tabs of the bubble, fading to none at 0.75. The filled icon variant shows above 0.5. So whichever tab the bubble covers lights up, and a tab the bubble passes over glows briefly.
+  - **Liquid stretch:** while `_pos` animates, the bubble lengthens up to 18% (and flattens a little) with its velocity.
+- **Two separate animation paths, as the user suggested:**
+  - **Tap:** `onTabSelected` fires, the parent changes `currentIndex`, and `didUpdateWidget` runs `_slideTo`. That's an `animateTo` with `Cubic(0.3, 0, 0.1, 1)` over 260ms + 60ms per tab travelled (~320ms to a neighbour), so it gets going immediately and eases into place. External index changes (back button, `NavigationHelper`) take the same path.
+  - **Drag** (`onHorizontalDrag*`): the bubble *lifts* (`_lift`: +8% size, clearer fill, brighter rim, soft shadow; the icon under it grows up to 12%, like a lens) and tracks the finger 1:1. Right after the drag is recognised, `_catchUp` blends it from where it was to the finger over 160ms, so it never jumps. It rubber-bands up to 0.18 tabs past the end tabs. Each tab crossed gives a `HapticFeedback.selectionClick()`. **Nothing is selected mid-drag.**
+  - **Release:** a `SpringSimulation` (stiffness 520, damping ratio 0.78, so a hint of overshoot) to the nearest tab of `pos + velocity × 0.12s`, so a flick carries on to the tab it's heading for. It selects that tab if it differs from the current one; releasing over the current tab does nothing.
+- **`currentIndex` is the source of truth.** If the parent doesn't adopt a selection (the Search easter egg opens a page instead), a post-frame check slides the bubble back.
+- **Reduce motion:** taps and snaps jump; the drag still tracks.
+- **Semantics:** each tab is a button with `selected` and a tap action.
+- **`main_screen.dart`:** `_buildGlassBottomNav` now just builds a `GlassTabBar`. The old inline tap closure became `_onGlassTabSelected`, with an identical body: `popUntil` the first route, the 11-taps-on-Search easter egg, `setState(_currentIndex)`. A drag released onto Search counts as one easter-egg tap. The classic `_buildBottomNav` is untouched.
+- The bubble is **painted** (`_BubblePainter`), not a nested backdrop filter. A true magnifying-lens bubble that refracts the icons under it would need a nested, ungrouped backdrop and a magnification mode in the shader; that's a possible follow-up.
+- **Tests:** `test/widgets/glass_tab_bar_test.dart` (9 tests) covers the initial state, the tap slide (not a teleport, settled in <½s), slow-drag 1:1 tracking with highlight and haptics, release over the current tab, the flick projection, the bubble returning when a selection isn't adopted, external index changes, reduce motion and semantics.
+
 ### Floating chrome layout (`lib/screens/main/main_screen.dart`)
 
 Glass mode only:
@@ -143,11 +163,12 @@ Builds with the iOS 27 SDK crash on launch without it (`UIApplicationEvaluateRun
   - **Alignment:** a glass moved by scrolling *without repainting* is byte-identical to one freshly built at the same spot (max channel diff 0).
   - **Grouped vs ungrouped:** identical except a 2pt sliver at the top rim of the lower glass. That's the expected cost of a shared backdrop.
 - **Real `MainScreen`, iPhone size (393×852, 34pt inset), glass mode:**
-  - Chrome spans 688→852 (164pt), and the overlap reported to pages is 164.
+  - Chrome spans 688→852 (164pt), and the overlap reported to pages is 164. Since the mini-player went to 60pt it's 684→852 (168pt); the tab bar is at 756→818.
   - The last list item ends exactly 16pt above the chrome.
   - With a sheet open, the chrome moves to y≈917 (off-screen) and the sheet still sees the 34pt inset.
 - **Real `MainScreen`, classic mode:** pages stop at 695.5, overlap is 0, and every spacer returns its original value.
-- **Tests:** 101/101 pass. The analyzer shows the **16 pre-existing infos (the baseline), no new ones.**
+- **Real `MainScreen` with `GlassTabBar` (2026-11-03):** a tap on Library shows `LibraryScreen`; a drag from Library to Search shows `SearchScreen`; 10 more taps on Search open `FantasyScreen`.
+- **Tests:** all widget tests pass. Seven live-network/platform tests (`lrclib_service`, `playlist_import_service`, `update_service` "targetAsset") fail in the container on the untouched base too. The analyzer shows the **16 pre-existing infos (the baseline), no new ones.**
 - **Not verified:** a real device, Metal (iOS), the GLES fallback on older Android, on-device performance, and an Xcode compile of the UIScene changes.
 
 ## Open feedback and issues
@@ -156,7 +177,8 @@ Builds with the iOS 27 SDK crash on launch without it (`UIApplicationEvaluateRun
   - **Edge strength:** `refraction`/`bevel`.
   - **Center clarity vs. legibility over bright art:** `adaptiveTint`, the tint opacities, `frost`.
   - **Scroll smoothness.** Each is a single `GlassStyle` field.
-- **Tab bar is still the old near-opaque pill** (`_buildGlassBottomNav`). It's already inside the `BackdropGroup` but doesn't use `GlassContainer` yet. That's step 2.
+- **Tab bar:** waiting on the user's review of the interaction (they got GIFs of the tap slide and drag). Likely tuning knobs: tap slide duration/curve (`_slideTo`, `_kSlideCurve`), snap spring (`_kSnapSpring`), lift size (`_kLiftScale`), bubble fill (`_BubblePainter`), and the highlight fade (`_highlight`).
+- **Legibility over near-white art in dark mode:** with the centre this clear (adaptive tint 0.15), white text over a near-white cover is hard to read. The user was told. Options: raise `adaptiveTint`, or adaptive foreground (glyphs flip dark over bright content, as iOS does), which is a bigger feature.
 - **Dialogs on the inner navigator:** the chrome stays above the dim barrier, as in classic mode. iOS also dims the tab bar. Possible follow-up.
 - **Light mode:** the adaptive tint lifts near-black content behind the glass toward gray. This is by design for legibility, and tunable.
 - **Press glow on inner buttons:** holding an inner icon button for more than 100ms also triggers the capsule's glow (the outer `onTapDown` deadline).
@@ -170,18 +192,6 @@ Builds with the iOS 27 SDK crash on launch without it (`UIApplicationEvaluateRun
 - **CarPlay** is still disabled (`#if false`, pending Apple's entitlement).
 
 ## Next in scope
-
-**Step 2: bottom nav.** The user's reference is an iOS 27.2 Apple Music screenshot:
-- A floating glass capsule tab bar with a separate glass mini-player capsule above it.
-- The selected tab sits in a lighter glass "lens" pill with an accent-colored icon and label; the others are neutral.
-
-Musly has **3 tabs** (Home, Library, Search).
-
-Implementation notes:
-- Build it in `_buildGlassBottomNav` with `GlassContainer.capsule`. It's already inside the `BackdropGroup`.
-- Keep the tap logic exactly as it is: `popUntil` the first route; the **11-taps-on-Search easter egg** opening `FantasyScreen` (`_searchTapCount`/`_lastSearchTap`); `setState(_currentIndex)`.
-- Changes to the chrome height flow to pages automatically through `extendBody`, so no padding work is needed.
-- Consider an animated selected pill.
 
 **Step 3: now-playing**
 - Lives in `lib/screens/player/now_playing_screen.dart` and `lib/widgets/now_playing/*`.
@@ -211,6 +221,9 @@ Implementation notes:
   - Plain `flutter test` uses Skia, so you only ever see the fallback.
 - **`debugDisableShadows`** is true in tests, so shadows render hard-edged. Set it false in the test body and reset it **before the body ends**; the invariant check runs before `tearDown`.
 - **Screen captures:** use `RepaintBoundary.toImage(pixelRatio: dpr)` on a boundary at the **root** (origin 0,0). The shader's coordinates assume that.
+- **Filming interactions:** drive gestures with `startGesture`/`moveTo`, pump in fixed steps, and capture each step. Assemble GIFs **one at a time and crop each frame as soon as it's loaded**; holding full 3x screenshots for two films at once got the worker OOM-killed.
+- **`tester.flingFrom` with a short offset reports zero velocity.** It sends 50 moves, and the velocity tracker keeps only the last 20 samples. If those cover less than the 18px touch slop, it's not a fling. Use offsets of ~50px or more.
+- **Mounting the real `MainScreen` logs a RenderFlex overflow from the Home page** under the test font. It happens on the untouched base too; `tester.takeException()` it.
 - **Fonts for realistic renders:** Roboto and MaterialIcons from the SDK's `bin/cache/artifacts/material_fonts`, CupertinoIcons from the pub cache.
 - **Switching light/dark between captures:** set `themeAnimationDuration: Duration.zero` on the harness `MaterialApp`. Otherwise a re-pumped app is caught mid-way through its 200ms theme lerp, and you get gray icons and a half-lerped glass tint that look like app bugs but aren't.
 - **Image loads in captures:** a local-file `coverArt` path works for `AlbumArtwork`. Pump inside `tester.runAsync` a few times before capturing, and throw away the first capture, which often misses the image.

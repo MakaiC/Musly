@@ -643,119 +643,60 @@ class _MainScreenState extends State<MainScreen> {
   }
 
   Widget _buildGlassBottomNav(BuildContext context) {
-    final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
-    final accent = theme.colorScheme.primary;
     final safeBottom = MediaQuery.of(context).padding.bottom;
     final l10n = AppLocalizations.of(context)!;
 
-    final items = [
-      (
-        icon: CupertinoIcons.music_house,
-        activeIcon: CupertinoIcons.music_house_fill,
-        label: l10n.home,
-      ),
-      (
-        icon: CupertinoIcons.collections,
-        activeIcon: CupertinoIcons.collections_solid,
-        label: l10n.library,
-      ),
-      (
-        icon: CupertinoIcons.search,
-        activeIcon: CupertinoIcons.search,
-        label: l10n.search,
-      ),
-    ];
-
     return Padding(
       padding: EdgeInsets.fromLTRB(12, 4, 12, safeBottom > 0 ? safeBottom : 12),
-      child: Container(
-        height: 62,
-        decoration: BoxDecoration(
-          color: isDark ? const Color(0xF018181A) : const Color(0xF5FFFFFF),
-          borderRadius: BorderRadius.circular(30),
-          border: Border.all(
-            color: isDark
-                ? Colors.white.withValues(alpha: 0.12)
-                : Colors.black.withValues(alpha: 0.08),
-            width: 0.8,
+      child: GlassTabBar(
+        currentIndex: _currentIndex,
+        onTabSelected: _onGlassTabSelected,
+        items: [
+          GlassTabItem(
+            icon: CupertinoIcons.music_house,
+            activeIcon: CupertinoIcons.music_house_fill,
+            label: l10n.home,
           ),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.18),
-              blurRadius: 16,
-              offset: const Offset(0, 4),
-            ),
-          ],
-        ),
-        child: Row(
-          children: List.generate(items.length, (idx) {
-            final item = items[idx];
-            final isSelected = _currentIndex == idx;
-            return Expanded(
-              child: GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                onTap: () {
-                  final navigatorState =
-                      NavigationHelper.appNavigatorKey.currentState;
-                  navigatorState?.popUntil((route) => route.isFirst);
-
-                  if (idx == 2) {
-                    final now = DateTime.now();
-                    if (now.difference(_lastSearchTap).inSeconds > 3) {
-                      _searchTapCount = 0;
-                    }
-                    _searchTapCount++;
-                    _lastSearchTap = now;
-                    if (_searchTapCount >= 11) {
-                      _searchTapCount = 0;
-                      Navigator.of(context).push(
-                        MaterialPageRoute(
-                          builder: (_) => const FantasyScreen(),
-                        ),
-                      );
-                      return;
-                    }
-                  } else {
-                    _searchTapCount = 0;
-                  }
-
-                  setState(() => _currentIndex = idx);
-                },
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    AnimatedSwitcher(
-                      duration: const Duration(milliseconds: 150),
-                      child: Icon(
-                        isSelected ? item.activeIcon : item.icon,
-                        key: ValueKey(isSelected),
-                        color: isSelected
-                            ? accent
-                            : (isDark ? Colors.white54 : Colors.black38),
-                        size: 22,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      item.label,
-                      style: TextStyle(
-                        fontSize: 10,
-                        fontWeight:
-                            isSelected ? FontWeight.w600 : FontWeight.w400,
-                        color: isSelected
-                            ? accent
-                            : (isDark ? Colors.white54 : Colors.black38),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            );
-          }),
-        ),
+          GlassTabItem(
+            icon: CupertinoIcons.collections,
+            activeIcon: CupertinoIcons.collections_solid,
+            label: l10n.library,
+          ),
+          GlassTabItem(
+            icon: CupertinoIcons.search,
+            activeIcon: CupertinoIcons.search,
+            label: l10n.search,
+          ),
+        ],
       ),
     );
+  }
+
+  /// Glass tab bar selection (a tap, or a drag released over another tab).
+  /// Same behaviour as the classic tab bar's onTap.
+  void _onGlassTabSelected(int idx) {
+    final navigatorState = NavigationHelper.appNavigatorKey.currentState;
+    navigatorState?.popUntil((route) => route.isFirst);
+
+    if (idx == 2) {
+      final now = DateTime.now();
+      if (now.difference(_lastSearchTap).inSeconds > 3) {
+        _searchTapCount = 0;
+      }
+      _searchTapCount++;
+      _lastSearchTap = now;
+      if (_searchTapCount >= 11) {
+        _searchTapCount = 0;
+        Navigator.of(context).push(
+          MaterialPageRoute(builder: (_) => const FantasyScreen()),
+        );
+        return;
+      }
+    } else {
+      _searchTapCount = 0;
+    }
+
+    setState(() => _currentIndex = idx);
   }
 
   Widget _buildBottomNav(BuildContext context) {

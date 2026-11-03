@@ -33,6 +33,7 @@ export 'navigation/desktop_navigation_sidebar.dart';
 export 'navigation/desktop_player_bar.dart';
 export 'navigation/desktop_lyrics_panel.dart';
 export 'navigation/mini_player.dart';
+export 'navigation/glass_tab_bar.dart';
 export 'navigation/right_sidebar.dart';
 export 'navigation/cast_button.dart';
 export 'navigation/airplay_button.dart';
