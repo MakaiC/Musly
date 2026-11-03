@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:ui' show lerpDouble;
 import 'package:flutter/cupertino.dart' hide RepeatMode;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart' hide RepeatMode;
@@ -15,6 +16,7 @@ import 'package:musly/utils/screen_helper.dart';
 import 'package:musly/services/subsonic_service.dart';
 import 'package:musly/widgets/common/album_artwork.dart';
 import 'package:musly/widgets/common/glass_container.dart';
+import 'package:musly/widgets/navigation/glass_collapsed_bar.dart';
 import 'package:musly/screens/player/now_playing_screen.dart';
 import 'package:musly/widgets/modals/song_options_modal.dart';
 
@@ -27,10 +29,23 @@ const double _kGlassArtSize = 40;
 const double _kGlassArtRadius = 10;
 const double _kGlassArtLeading = 12;
 
+// Collapsed glass geometry (see MiniPlayer.collapse): smaller art in a
+// shorter capsule, keeping about the same clearance from its curve.
+const double _kGlassCollapsedArtSize = 36;
+const double _kGlassCollapsedArtRadius = 9;
+const double _kGlassCollapsedArtLeading = 9;
+
 class MiniPlayer extends StatelessWidget {
   final VoidCallback? onTap;
 
-  const MiniPlayer({super.key, this.onTap});
+  /// Glass mode only, 0..1: the compact form used when the floating chrome
+  /// collapses. The capsule shrinks to [kGlassCollapsedBarHeight] tall and
+  /// the artwork with it; artwork, title and artist stay; every control
+  /// except play/pause folds away, leaving play/pause at the trailing edge.
+  /// The width comes from the parent.
+  final double collapse;
+
+  const MiniPlayer({super.key, this.onTap, this.collapse = 0.0});
 
   @override
   Widget build(BuildContext context) {
@@ -119,6 +134,7 @@ class MiniPlayer extends StatelessWidget {
           coverArt: coverArt,
           isPlayingRadio: isPlayingRadio,
           isGlass: isGlass,
+          collapse: isGlass ? collapse.clamp(0.0, 1.0) : 0.0,
         );
 
         if (isGlass) {
@@ -127,7 +143,8 @@ class MiniPlayer extends StatelessWidget {
             child: Padding(
               padding: const EdgeInsets.fromLTRB(12, 4, 12, 4),
               child: GlassContainer.capsule(
-                height: _kGlassMiniPlayerHeight,
+                height: lerpDouble(_kGlassMiniPlayerHeight,
+                    kGlassCollapsedBarHeight, collapse.clamp(0.0, 1.0)),
                 onTap: handleTap,
                 onLongPress: currentSong != null
                     ? () => SongOptionsModal.show(context, currentSong)
@@ -289,12 +306,16 @@ class _MiniPlayerRow extends StatelessWidget {
   final bool isPlayingRadio;
   final bool isGlass;
 
+  /// Glass only: see [MiniPlayer.collapse].
+  final double collapse;
+
   const _MiniPlayerRow({
     required this.title,
     required this.subtitle,
     required this.coverArt,
     required this.isPlayingRadio,
     this.isGlass = false,
+    this.collapse = 0,
   });
 
   @override
@@ -302,10 +323,20 @@ class _MiniPlayerRow extends StatelessWidget {
     final theme = Theme.of(context);
     // Glass capsule: artwork nests inside the rounded end (see
     // _kGlassArtLeading); controls tuck closer to the trailing curve.
-    final double artSize = isGlass ? _kGlassArtSize : 44;
-    final double artRadius = isGlass ? _kGlassArtRadius : 6;
+    final double artSize = isGlass
+        ? lerpDouble(_kGlassArtSize, _kGlassCollapsedArtSize, collapse)!
+        : 44;
+    final double artRadius = isGlass
+        ? lerpDouble(_kGlassArtRadius, _kGlassCollapsedArtRadius, collapse)!
+        : 6;
     final EdgeInsets padding = isGlass
-        ? const EdgeInsets.only(left: _kGlassArtLeading, right: 8)
+        ? EdgeInsets.only(
+            left: lerpDouble(
+                _kGlassArtLeading, _kGlassCollapsedArtLeading, collapse)!,
+            // Collapsed, play/pause is the only control: centre it in the
+            // capsule's rounded end (radius 26 = 2 + half its 48pt padded
+            // tap target).
+            right: lerpDouble(8, 2, collapse)!)
         : const EdgeInsets.symmetric(horizontal: 16);
     return Padding(
       padding: padding,
@@ -379,7 +410,8 @@ class _MiniPlayerRow extends StatelessWidget {
               ],
             ),
           ),
-          _MiniPlayerControls(isRadio: isPlayingRadio, isGlass: isGlass),
+          _MiniPlayerControls(
+              isRadio: isPlayingRadio, isGlass: isGlass, collapse: collapse),
         ],
       ),
     );
@@ -390,7 +422,33 @@ class _MiniPlayerControls extends StatelessWidget {
   final bool isRadio;
   final bool isGlass;
 
-  const _MiniPlayerControls({this.isRadio = false, this.isGlass = false});
+  /// Glass only: folds away every control but play/pause.
+  final double collapse;
+
+  const _MiniPlayerControls({
+    this.isRadio = false,
+    this.isGlass = false,
+    this.collapse = 0,
+  });
+
+  /// A control that folds away (narrows to nothing and fades) as the
+  /// mini-player collapses. A no-op at [collapse] 0.
+  Widget _fold(Widget child) {
+    if (collapse <= 0) return child;
+    return IgnorePointer(
+      ignoring: collapse > 0.5,
+      child: ClipRect(
+        child: Align(
+          alignment: Alignment.centerLeft,
+          widthFactor: 1 - collapse,
+          child: Opacity(
+            opacity: (1 - collapse / 0.6).clamp(0.0, 1.0),
+            child: child,
+          ),
+        ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -437,7 +495,7 @@ class _MiniPlayerControls extends StatelessWidget {
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         if (showHeart && !isRadio)
-                          Selector<PlayerProvider, bool>(
+                          _fold(Selector<PlayerProvider, bool>(
                             selector: (_, p) => p.currentSong?.starred == true,
                             builder: (context, isStarred, _) {
                               return IconButton(
@@ -454,9 +512,9 @@ class _MiniPlayerControls extends StatelessWidget {
                                     : color,
                               );
                             },
-                          ),
+                          )),
                         if (showShuffle && !isRadio)
-                          Selector<PlayerProvider, bool>(
+                          _fold(Selector<PlayerProvider, bool>(
                             selector: (_, p) => p.shuffleEnabled,
                             builder: (context, shuffleEnabled, _) {
                               return IconButton(
@@ -473,7 +531,7 @@ class _MiniPlayerControls extends StatelessWidget {
                                     : color,
                               );
                             },
-                          ),
+                          )),
                         IconButton(
                           onPressed: provider.togglePlayPause,
                           padding: EdgeInsets.zero,
@@ -486,7 +544,7 @@ class _MiniPlayerControls extends StatelessWidget {
                           color: color,
                         ),
                         if (showRepeat && !isRadio)
-                          Selector<PlayerProvider, RepeatMode>(
+                          _fold(Selector<PlayerProvider, RepeatMode>(
                             selector: (_, p) => p.repeatMode,
                             builder: (context, repeatMode, _) {
                               IconData icon;
@@ -507,16 +565,16 @@ class _MiniPlayerControls extends StatelessWidget {
                                     : color,
                               );
                             },
-                          ),
+                          )),
                         if (!isRadio)
-                          IconButton(
+                          _fold(IconButton(
                             onPressed: hasNext ? provider.skipNext : null,
                             padding: EdgeInsets.zero,
                             constraints: const BoxConstraints(
                                 minWidth: 36, minHeight: 36),
                             icon: Icon(skipIcon, size: skipIconSize),
                             color: color,
-                          ),
+                          )),
                       ],
                     );
                   },

@@ -1,6 +1,6 @@
 # Liquid Glass theme: progress & handoff
 
-Last updated 2026-11-02 (sliders, branch `slider-work`); previously 2026-11-03 · branch `claude/sleepy-gates-rm92oh` (continues `claude/brave-bohr-80alrl`) · Flutter **3.47.7** (pinned in CI)
+Last updated 2026-11-02 (collapsing bottom chrome, branch `collapsed-nav`); before that 2026-11-02 (sliders, branch `slider-work`); previously 2026-11-03 · branch `claude/sleepy-gates-rm92oh` (continues `claude/brave-bohr-80alrl`) · Flutter **3.47.7** (pinned in CI)
 
 ## Status at a glance
 
@@ -27,6 +27,7 @@ Audited from `lib/screens/**` and the sheets, dialogs and menus they open (2026-
 **Core chrome and player (the user's priority order)**
 - [x] Mini-player: `lib/widgets/navigation/mini_player.dart`
 - [~] Bottom nav / tab bar: `lib/widgets/navigation/glass_tab_bar.dart`, wired in `main_screen.dart`'s `_buildGlassBottomNav`. Built; the user marks it in progress.
+- [~] Collapsing chrome on scroll: `main_screen.dart` (`_buildCollapsibleChrome`) + `GlassTabBar.collapse` + `MiniPlayer.collapse` + `lib/widgets/navigation/glass_collapsed_bar.dart`. Second version (one continuous morph) built 2026-11-02 after the user's feedback; waiting on their look. See "Collapsing chrome" below.
 - [ ] Now-playing: `lib/screens/player/now_playing_screen.dart` + `lib/widgets/now_playing/*`. The user marks it not started; an unaccepted draft is in `5000ad8`.
 - [ ] Library grid: the cards in `lib/widgets/cards/` (`album_card`, `artist_card`, `media_card`) and the grid in `lib/screens/main/library_screen.dart`
 - [ ] New tab: planned by the user, **not in the codebase**. `MainScreen` has 3 tabs (`_screens`: Home, Library, Search).
@@ -158,6 +159,7 @@ Restyle these components with an iOS 26/27 Liquid Glass look, in this order: min
 | `c48b696` | `GlassTabBar` (`lib/widgets/navigation/glass_tab_bar.dart`) + its widget tests; `_buildGlassBottomNav` uses it |
 | `5000ad8` | Now-playing glass: `GlassIconButton`, `ArtworkBackdrop`, `GlassStyle.control`, `GlassContainer.visibility`, glass branches in the now-playing screen and widgets, + tests |
 | *(branch `slider-work`)* | `ThickBarSlider`: thumb-less thick-bar scrubber and volume slider (both modes), + tests |
+| *(branch `collapsed-nav`, uncommitted at hand-off)* | Collapsing chrome: `GlassChromeScrollTracker` + `GlassTabButton`, `collapse` on `GlassTabBar`/`MiniPlayer`, the morph in `main_screen.dart`, + tests |
 
 ## What's built
 
@@ -247,6 +249,33 @@ The user's spec was Apple Music's interaction model, not a static bar: a selecti
 - The bubble is **painted** (`_BubblePainter`), not a nested backdrop filter. A true magnifying-lens bubble that refracts the icons under it would need a nested, ungrouped backdrop and a magnification mode in the shader; that's a possible follow-up.
 - **Tests:** `test/widgets/glass_tab_bar_test.dart` (10 tests) covers the initial state, the tap slide (not a teleport, settled in <½s), slow-drag 1:1 tracking with highlight and haptics, the bubble-as-window masking (an edge splits an icon into gray outside and accent inside, following the edge exactly), release over the current tab, the flick projection, the bubble returning when a selection isn't adopted, external index changes, reduce motion and semantics.
 
+### Collapsing chrome (`main_screen.dart` `_buildCollapsibleChrome`, `lib/widgets/navigation/glass_collapsed_bar.dart`)
+
+The user's spec (2026-11-02, revised the same day after the first version): when you scroll down a page, the full tab bar + mini-player **morph as one continuous move** into a compact row so more content shows. Glass phone layout only; classic is untouched.
+
+- **Collapsed layout** (52pt row, `kGlassCollapsedBarHeight`, same 12pt side margins and bottom inset as the tab bar):
+  - **Leading corner:** the tab bar itself, shrunk to a circle. It shows the **current tab** (filled accent icon), or **Home** (plain neutral icon) while on Search (`_collapsedLeadingTab`, `GlassTabBar.collapsedIndex`).
+  - **Middle:** the mini-player itself, 52pt tall and narrowed into the gap. It **keeps artwork (36pt), title and artist**; every control except play/pause folds away, and **play/pause sits at the capsule's trailing edge** (centred in its rounded end). Tapping it opens now-playing as usual.
+  - **Trailing corner:** always **Search** (accented while it's the current tab). So Home → [Home] [mini] [Search]; Library → [Library] [mini] [Search]; Search → [Home] [mini] [Search]. This is the user's rule (2026-11-02, third round). It replaced a first guess of Home in the trailing corner, with Library getting [Search][Home].
+- **When it changes** (`GlassChromeScrollTracker`, fed by a `NotificationListener<ScrollNotification>` around the inner navigator, so it works on **every page** under the chrome with no per-page code):
+  - **Collapses** after scrolling **down 24pt** (`kGlassChromeScrollThreshold`) without reversing, once more than 24pt from the top.
+  - **Stays collapsed** while scrolling either way, across page pushes and pops (the user's rule: scrolling up does *not* expand it).
+  - **Expands only on:** a tab press (any tab: the collapsed circle, a trailing button, or the full bar, via `_onGlassTabSelected`; also `NavigationHelper` tab changes and Android back to Home), or reaching the **top** of a page (≤0.5pt of `minScrollExtent`, an iOS pull-down bounce past the top, or a pull-down `OverscrollNotification` at the top on Android).
+  - Ignored: horizontal scrollables (Home's carousels), reversed lists, overscroll at the end of a list, and scrolling while a sheet is on top.
+- **The morph.** One **unbounded** `AnimationController` `_chromeCollapse` (0 full, 1 collapsed), driven by a soft, **underdamped** spring (`_kChromeCollapseSpring`: stiffness 170, damping ratio 0.68, `snapToEnd`). The user asked for "flowy/bouncy" and slightly slower; it was critically damped at stiffness 320 (~0.3s) before. It takes ~0.5s and overshoots ~5% before settling, and a reversal mid-way keeps its speed. Reduce motion jumps.
+  - The overshoot (`over` = value minus its clamp to 0..1) is **added to each piece's geometry**, so everything bounces. Collapsing, the mini-player dips ~4pt below its row and back, the circle dips ~8% (to ~48pt; in `GlassTabBar` the dip past 1 is relative to the circle, not the bar's long travel), and the trailing button pops past full size. Expanding, the mini-player rises ~4pt above its spot and the bar swells ~2%. Opacities and fades use the clamped value.
+  - Every piece is placed by **lerping its rect** between the two layouts, with staggered `Interval`s:
+  - **Tab bar** (`GlassTabBar.collapse`, 0–0.85): the glass capsule narrows toward its leading end and drops to 52pt tall, bottom-aligned, and becomes the leading circle. The tabs keep their full-width layout (`OverflowBox`, width remembered in `_expandedWidth`) and **glide so the current tab's centre lands on the circle's**, fading out as the circle's accent icon fades in. While collapsed the tabs ignore touches; tapping the circle calls `onTabSelected(currentIndex)` (pop to root + expand). It has one semantics button for the current tab.
+  - **Mini-player** (`MiniPlayer.collapse`, 0.1–1, a beat after the tab bar so it has room): its rect drops into the gap between the corner buttons and narrows; capsule height 60→52, art 40→36 (radius 10→9, leading inset 12→9), trailing padding 8→2. The other controls fold away via `_fold` (width factor and opacity down to 0). Painted above the tab bar.
+  - **Trailing Search button** (`GlassTabButton`, 0.3–1): swells from 50% scale and dissolve in via `GlassContainer.visibility` in the space the tab bar's end vacates.
+  - **No glass is ever faded with a fractional `Opacity`;** plain `Opacity` is only on non-glass contents (tabs, icons, folded controls).
+  - The chrome's box keeps the **full height** throughout (`SizedBox` around a `Stack`), so the overlap reported to pages (`floatingChromeOverlap`, 168pt with a song on a 34pt-inset iPhone) never changes and nothing reflows mid-scroll. Empty parts of the box don't hit-test.
+- **Tuning knobs:** threshold (`kGlassChromeScrollThreshold`), row size (`kGlassCollapsedBarHeight`), spring (`_kChromeCollapseSpring`: lower stiffness = slower, lower ratio = bouncier), the three `Interval`s, the 0.5 trailing start scale and the overshoot gains (1.5 on the trailing pop) in `_buildCollapsibleChrome`, the dip/swell gains (1.5 and 0.35) in `GlassTabBar.build`, the collapsed art constants (`_kGlassCollapsed*` in `mini_player.dart`), and the tab fade points (0.6 / 0.35) in `GlassTabBar.build`.
+- **Tests:** `test/widgets/glass_collapsed_bar_test.dart` (13).
+  - The tracker: threshold; stays collapsed scrolling up until the top; no collapse from jiggles near the top; pull-down at the top expands; horizontal scrolling ignored; end bounce ignored.
+  - `GlassTabBar.collapse`: the capsule lerps into a 52pt circle anchored bottom-left; the current tab glides in and ends centred; tapping the circle selects the current tab; `collapsedIndex` (Home on Search: neutral icon, selects Home); overshoot dip and swell; collapsed semantics.
+  - `GlassTabButton`: size, colour, tap, semantics.
+
 ### Now-playing (`lib/screens/player/now_playing_screen.dart` + `lib/widgets/now_playing/*`)
 
 Glass mode only (`ThemeService.liquidGlass`, read in `build` into `_glass`). Classic is **pixel-identical** to before (playing, paused and pressed renders diffed at 0). Applies to the portrait and landscape layouts; TV keeps `TvNowPlayingScreen`.
@@ -335,6 +364,11 @@ Builds with the iOS 27 SDK crash on launch without it (`UIApplicationEvaluateRun
 - **Tests:** all widget tests pass. Seven live-network/platform tests (`lrclib_service`, `playlist_import_service`, `update_service` "targetAsset") fail in the container on the untouched base too. The analyzer shows the **16 pre-existing infos (the baseline), no new ones.**
 - **Now-playing (2026-11-03):** rendered glass and classic, portrait and landscape, with a dark sunset cover and a near-white one. Classic is byte-identical to the old code. All 38 chrome renders (mini-player plus tab bar at rest, mid-tap and mid-drag, dark and light) are byte-identical to before the `GlassContainer.visibility` change.
 - **Sliders (2026-11-02, macOS, `flutter test`):** the 6 new `ThickBarSlider` tests and all 84 widget tests pass, including `now_playing_glass_test` (which mounts the real screen in both modes). Analyzer at the 16-info baseline. No renders or device check yet.
+- **Collapsing chrome (2026-11-02, macOS, `flutter test`):** the 13 tests and all 98 widget tests pass; the analyzer is at the 16-info baseline. A temporary harness (deleted) mounted the real glass `MainScreen` at iPhone size (393×852, 34pt inset), with a song and a tall page pushed, and checked:
+  - Geometry: the overlap stays 168pt collapsed. The mini-player goes from 12,688–381,748 to 72,766–321,818, showing title and artist, with play/pause centred 26pt from its end. The tab bar becomes a 52pt circle at 12,766.
+  - Behaviour: it stays collapsed scrolling up mid-page and after play/pause, and expands at the top. Tapping the circle pops to root and expands. Row per tab: Home → [Home][Search]; Library → [Library][Search]; Search → [Home, neutral][Search, accent]. Search from Library navigates and expands; the Home circle on Search goes Home.
+  - Bounce (third round): collapsing, the mini-player's bottom peaks at 821.8 (rest 818) and the circle dips to 47.8pt; expanding, the mini-player's top peaks at 683.8 (rest 688). Both settle exactly.
+  - Skia (fallback) frames of the morph looked continuous. No Impeller renders or device check yet.
 - **Not verified:** a real device, Metal (iOS), the GLES fallback on older Android, on-device performance, and an Xcode compile of the UIScene changes.
 
 ## Open feedback and issues
@@ -344,12 +378,10 @@ Builds with the iOS 27 SDK crash on launch without it (`UIApplicationEvaluateRun
   - **Center clarity vs. legibility over bright art:** `adaptiveTint`, the tint opacities, `frost`.
   - **Scroll smoothness.** Each is a single `GlassStyle` field.
 - **Now-playing:** waiting on the user's review (they got before/after renders). Likely knobs: the backdrop blur/saturation/drift (`_BlurredArtwork`), the scrim curve (`ArtworkBackdrop`), the pause shrink (`_buildArtwork`), button sizes, and `GlassStyle.control`.
-<<<<<<< HEAD
-- **Tab bar:** tuning knobs if the user asks (they got GIFs of the tap slide and drag). Likely tuning knobs: tap slide duration/curve (`_slideTo`, `_kSlideCurve`), snap spring (`_kSnapSpring`), lift size (`_kLiftScale`), bubble fill (`_BubblePainter`), and the highlight fade (`_highlight`).
-- **Sliders:** waiting on the user's look on device. Knobs: idle/active thickness, hit height, resize duration (`kThickBar*`). **Classic mode changed too**: the user's request covered both sliders without a mode qualifier, unlike the "classic stays unchanged" rule for glass work. If they want classic back, gate on `VolumeSlider.glass` and add a `glass` flag to `PlaybackProgressSlider`.
-=======
 - **Tab bar:** tuning knobs if the user asks (they got GIFs of the tap slide and drag). Likely tuning knobs: tap slide duration/curve (`_slideTo`, `_kSlideCurve`), snap spring (`_kSnapSpring`), lift size (`_kLiftScale`), bubble fill (`_BubblePainter`), and the lens falloff (`_proximity`). Colour comes only from the bubble mask; don't reintroduce per-tab colour fades or snaps.
->>>>>>> navbar-work
+- **Sliders:** waiting on the user's look on device. Knobs: idle/active thickness, hit height, resize duration (`kThickBar*`). **Classic mode changed too**: the user's request covered both sliders without a mode qualifier, unlike the "classic stays unchanged" rule for glass work. If they want classic back, gate on `VolumeSlider.glass` and add a `glass` flag to `PlaybackProgressSlider`.
+- **Collapsing chrome:** waiting on the user's look on device. History: the first version (2026-11-02) cross-dissolved the full chrome into a separate row with a play/pause-only capsule, and expanded on any scroll up. The user rejected it: they wanted one fluid move, the mini-player keeping its art, title and artist, play/pause at its far right, and expanding only on a tab press or at the top. Third round (same day): the user asked for bounce and a slightly slower pace (now the underdamped spring), and set the tab rule (Search always trailing; Home leading on Search). Possible knobs if it feels off: the spring's stiffness/ratio and the stagger `Interval`s.
+- **Blur fallback mid-dissolve:** on the fallback path (Skia, web, tests) a glass surface at low `visibility` shows a saturated smear of what's behind it, visible mid-collapse in renders. The shader path (iOS) isn't affected. Pre-existing in `GlassContainer`'s fallback; scale its saturation by `visibility` if it matters.
 - **Legibility over near-white art in dark mode:** with the centre this clear (adaptive tint 0.15), white text over a near-white cover is hard to read. The user was told. Options: raise `adaptiveTint`, or adaptive foreground (glyphs flip dark over bright content, as iOS does), which is a bigger feature.
 - **Dialogs on the inner navigator:** the chrome stays above the dim barrier, as in classic mode. iOS also dims the tab bar. Possible follow-up.
 - **Light mode:** the adaptive tint lifts near-black content behind the glass toward gray. This is by design for legibility, and tunable.

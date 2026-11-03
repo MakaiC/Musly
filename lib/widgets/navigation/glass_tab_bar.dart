@@ -50,6 +50,9 @@ class GlassTabBar extends StatefulWidget {
     required this.onTabSelected,
     this.height = 62,
     this.style = GlassStyle.regular,
+    this.collapse = 0.0,
+    this.collapsedSize = 52,
+    this.collapsedIndex,
   }) : assert(items.length > 0);
 
   final List<GlassTabItem> items;
@@ -61,6 +64,27 @@ class GlassTabBar extends StatefulWidget {
 
   final double height;
   final GlassStyle style;
+
+  /// 0..1: shrinks the bar into a round button for a tab, as the
+  /// floating chrome collapses. The glass capsule narrows toward its leading
+  /// end (and to [collapsedSize] tall, bottom-aligned) while the tabs glide
+  /// so that tab ([collapsedIndex], or the current one) ends up centred in
+  /// the circle, fading out as its icon fades in there.
+  ///
+  /// May overshoot slightly past either end for a springy settle: above 1
+  /// the circle dips a little smaller, below 0 the bar swells a little.
+  ///
+  /// While collapsed (above 0) the tabs don't take touches; tapping the
+  /// circle calls [onTabSelected] with that tab.
+  final double collapse;
+
+  /// Diameter of the round button at [collapse] 1.
+  final double collapsedSize;
+
+  /// The tab the collapsed circle stands for; [currentIndex] when null. When
+  /// it isn't the current tab, the circle shows that tab's plain icon in the
+  /// neutral colour, and tapping it selects that tab.
+  final int? collapsedIndex;
 
   /// Key of the selection bubble, for tests.
   static const Key bubbleKey = ValueKey<String>('GlassTabBar.bubble');
@@ -106,6 +130,10 @@ class _GlassTabBarState extends State<GlassTabBar>
 
   // Layout, refreshed every build.
   double _slotWidth = 1;
+
+  /// Full width of the bar, remembered while expanded so the tabs keep their
+  /// layout as the capsule shrinks around them.
+  double? _expandedWidth;
 
   // Drag state.
   bool _dragging = false;
@@ -306,10 +334,108 @@ class _GlassTabBarState extends State<GlassTabBar>
     final accent = theme.colorScheme.primary;
     final neutral = isDark ? const Color(0xFFA1A1A6) : const Color(0xFF6E6E73);
 
+    return LayoutBuilder(builder: (context, outer) {
+      final raw = widget.collapse;
+      final c = raw.clamp(0.0, 1.0);
+      if (raw <= 0 || _expandedWidth == null) _expandedWidth = outer.maxWidth;
+      final fullWidth = _expandedWidth!;
+      if (raw <= 0) {
+        final capsule = _buildCapsule(context, neutral, accent);
+        if (raw == 0) return capsule;
+        // Overshooting on the way back: swell a touch, then settle.
+        return Transform.scale(
+          scale: 1 - 0.35 * raw,
+          alignment: Alignment.bottomCenter,
+          child: capsule,
+        );
+      }
+
+      final size = widget.collapsedSize;
+      // Geometry follows any overshoot (past 1 the circle dips smaller);
+      // opacities and the glide don't.
+      // Past 1, dip relative to the circle itself (not the bar's long
+      // travel): ~7% for a typical 5% overshoot.
+      final dip = raw > 1 ? math.max(0.85, 1 - 1.5 * (raw - 1)) : 1.0;
+      final width = raw > 1 ? size * dip : lerpDouble(fullWidth, size, raw)!;
+      final height =
+          raw > 1 ? size * dip : lerpDouble(widget.height, size, raw)!;
+      final index = _clampIndex(widget.collapsedIndex ?? widget.currentIndex);
+      final isCurrent = index == _clampIndex(widget.currentIndex);
+      // Slide the tabs so that tab's centre meets the circle's.
+      final slot = math.max(1.0, (fullWidth - 2 * _kBubbleInset) / _count);
+      final tabCentre = _kBubbleInset + slot * (index + 0.5);
+      final dx = c * (size / 2 - tabCentre);
+      final item = widget.items[index];
+
+      return Align(
+        alignment: Alignment.bottomLeft,
+        child: Semantics(
+          button: true,
+          selected: isCurrent,
+          label: item.label,
+          onTap: () => widget.onTabSelected(index),
+          child: GlassContainer.capsule(
+            width: width,
+            height: height,
+            style: widget.style,
+            onTap: () => widget.onTabSelected(index),
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                // The tabs keep their full-width layout; the capsule's edge
+                // sweeps over them as it shrinks. Plain Opacity is fine:
+                // they aren't glass.
+                Positioned.fill(
+                  child: ExcludeSemantics(
+                    child: IgnorePointer(
+                      child: OverflowBox(
+                        alignment: Alignment.centerLeft,
+                        minWidth: fullWidth,
+                        maxWidth: fullWidth,
+                        minHeight: widget.height,
+                        maxHeight: widget.height,
+                        child: Transform.translate(
+                          offset: Offset(dx, 0),
+                          child: Opacity(
+                            opacity: (1 - c / 0.6).clamp(0.0, 1.0),
+                            child: _buildTabs(context, neutral, accent),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                ExcludeSemantics(
+                  child: Opacity(
+                    opacity: ((c - 0.35) / 0.65).clamp(0.0, 1.0),
+                    child: Icon(
+                      isCurrent ? item.activeIcon : item.icon,
+                      color: isCurrent ? accent : neutral,
+                      size: 24,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    });
+  }
+
+  /// The expanded bar.
+  Widget _buildCapsule(BuildContext context, Color neutral, Color accent) {
     return GlassContainer.capsule(
       height: widget.height,
       style: widget.style,
-      child: LayoutBuilder(builder: (context, constraints) {
+      child: _buildTabs(context, neutral, accent),
+    );
+  }
+
+  /// The tabs, bubble and gestures, laid out in the incoming constraints.
+  Widget _buildTabs(BuildContext context, Color neutral, Color accent) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return LayoutBuilder(builder: (context, constraints) {
         final width = constraints.maxWidth;
         final height = constraints.maxHeight;
         _slotWidth = math.max(1.0, (width - 2 * _kBubbleInset) / _count);
@@ -422,8 +548,7 @@ class _GlassTabBarState extends State<GlassTabBar>
             },
           ),
         );
-      }),
-    );
+      });
   }
 }
 
