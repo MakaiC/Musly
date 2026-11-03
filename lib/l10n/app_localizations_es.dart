@@ -1193,6 +1193,9 @@ class AppLocalizationsEs extends AppLocalizations {
   String get home => 'Inicio';
 
   @override
+  String get newTab => 'New';
+
+  @override
   String get playlistsSection => 'LISTAS';
 
   @override

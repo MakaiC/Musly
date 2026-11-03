@@ -1190,6 +1190,9 @@ class AppLocalizationsPt extends AppLocalizations {
   String get home => 'Início';
 
   @override
+  String get newTab => 'New';
+
+  @override
   String get playlistsSection => 'PLAYLISTS';
 
   @override

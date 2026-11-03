@@ -1207,6 +1207,10 @@
   "@home": {
     "description": "Home navigation item label in the desktop sidebar"
   },
+  "newTab": "New",
+  "@newTab": {
+    "description": "Label of the New tab (recently added and suggested music) in the tab bar and sidebar, and its page title"
+  },
   "playlistsSection": "PLAYLISTS",
   "@playlistsSection": {
     "description": "Uppercase section header for playlists in the desktop sidebar"

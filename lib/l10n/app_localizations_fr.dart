@@ -1198,6 +1198,9 @@ class AppLocalizationsFr extends AppLocalizations {
   String get home => 'Accueil';
 
   @override
+  String get newTab => 'New';
+
+  @override
   String get playlistsSection => 'LISTES DE LECTURE';
 
   @override
