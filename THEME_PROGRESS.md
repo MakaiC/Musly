@@ -13,6 +13,8 @@ Last updated 2026-11-03 · branch `claude/sleepy-gates-rm92oh` (continues `claud
 | 3. Now-playing full-screen view | ⬜ **Not started (the user's call, 2026-11-03).** A first glass pass *is* committed (`5000ad8`) and was shown as renders, but the user hasn't accepted it. **Ask whether to iterate on it or redo it** before touching that code. |
 | 4. Library grid (album/artist cards) | ⬜ Not started |
 | 5. New tab ("Add Music") | ⬜ Not started. It's a **feature, not just a restyle**: Lidarr requests, YouTube-to-MP3 and auto-built custom albums. Full plan under "New tab: Add Music" below. |
+| 6. Apple CarPlay | ⬜ Backlog, low priority (near the end of the list). Scaffolding exists but is switched off, waiting on Apple's entitlement. See "Lower-priority features" below. |
+| 7. Desktop apps (macOS + Linux) | ⬜ Backlog, **lowest priority** (below CarPlay). The user personally needs both. See "Lower-priority features" below. |
 
 **Statuses are the user's.** Where the branch has more code than the status suggests, the status wins: treat that code as an unaccepted draft.
 
@@ -196,6 +198,54 @@ The user's notes also ended with an empty bullet, so more may be coming.
 6. **Ground rules.** The current rules say don't touch settings screens, the Subsonic client or state management. This feature needs credential entry (a new settings section or in-tab setup), new state and possibly a `startScan` call. **Get explicit approval for each**, as the settings padding fix was.
 7. **Distribution risk.** A feature that downloads YouTube audio may conflict with YouTube's terms and could be a problem in App Store review if the app is distributed publicly. Consider keeping it opt-in, off by default, or only active when a companion endpoint is configured.
 8. **What else is planned?** The notes said "other features like" custom albums and ended with an empty bullet.
+
+## Lower-priority features (backlog)
+
+Both are far down the user's list, so these notes are short. Rough order of the whole list: glass work, then the Add Music tab, then **CarPlay**, then **desktop apps** (the very last).
+
+### Apple CarPlay *(low priority)*
+
+**State: scaffolded but disabled, blocked on Apple.** The code comments say it waits for the `com.apple.developer.carplay-audio` entitlement to be approved by Apple.
+- `ios/Runner/CarPlaySceneDelegate.swift` (114 lines, wrapped in `#if false`). It builds a `CPTabBarTemplate` with the shared `CPNowPlayingTemplate` and a small `CPListTemplate` of quick actions. **It doesn't browse the library.**
+- `ios/Runner/Info.plist`: the CarPlay scene role is a commented block inside the existing scene manifest.
+- `ios/Runner/iOSSystemPlugin.swift`: the play/pause and skip observers are commented out.
+- `ios/Runner/Runner.entitlements` is empty.
+
+**To turn it on** (from the existing comments):
+1. Uncomment the scene role in the *existing* manifest. Don't add a second manifest.
+2. Remove the `#if false`.
+3. Restore the observers in `iOSSystemPlugin`.
+4. Add the entitlement to `Runner.entitlements` and to the provisioning profile.
+
+**Notes**
+- **CarPlay is native Apple templates, not Flutter.** The Liquid Glass theme work doesn't apply to it.
+- A real browse experience (albums, artists, playlists) is new work. `lib/services/android_auto_service.dart` (~900 lines) already builds that browse model for Android Auto and is the obvious thing to mirror, bridged through the existing iOS method channel.
+- *Likely complication, unverified:* CarPlay can launch the app with no phone UI, so playback must start without a visible Flutter window. The UIScene migration (`9007f21`) moved plugin registration into `didInitializeImplicitFlutterEngine`; recheck that path.
+- Needs approval under the ground rules (platform build config and entitlements are off-limits otherwise).
+
+**Ask the user:** has the entitlement been requested from Apple? Is now-playing plus quick actions enough at first, or should it browse the library?
+
+### Desktop apps: macOS and Linux *(lowest priority)*
+
+The user personally needs both. I read "desktop app updates" as **bringing the macOS and Linux apps up to date with the new design and features; confirm.**
+
+**State: they already build and ship from CI.**
+- **macOS:** a styled `.dmg` (`.github/workflows/build-macos.yml` and the `build-macos` job in `build.yml`, `packaging/macos`).
+- **Linux:** `.deb`, `.rpm`, `.pkg.tar.zst`, `.AppImage`, `.flatpak`, `.snap` and `.tar.gz` (the `build-linux` job in `build.yml`).
+- Audio on both is `just_audio_media_kit` (libmpv).
+- Windows and Tizen also build; the user didn't ask for them.
+
+**What the theme work did for desktop: nothing.**
+- Glass applies only to the phone layout (width < 650 and shortestSide < 600).
+- Larger windows use `DesktopNavigationSidebar`, `DesktopPlayerBar`, `RightSidebar` and `DesktopLyricsPanel` (`lib/widgets/navigation/`), all untouched. There is no floating mini-player or glass tab bar there.
+
+**Likely work** *(suggested, to confirm)*
+- Add any new tab (New, Add Music) to the desktop sidebar too. Otherwise desktop is missing the feature.
+- Decide whether Liquid Glass comes to desktop at all. The refraction shader needs Impeller, so desktop would probably get the blur fallback (unverified per platform).
+- Check desktop now-playing, since that screen was restyled for phones.
+- **Can't be fully tested in the Linux container.** A Linux build is feasible; macOS needs a Mac or the macOS CI runner.
+
+**Ask the user:** what "updates" means here (new features, the new look, or both), and whether Windows is wanted.
 
 ## Scope and ground rules (from the user)
 
