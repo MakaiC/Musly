@@ -55,6 +55,10 @@ class _PlayPauseAction extends Action<PlayPauseIntent> {
   }
 }
 
+/// Collapse progress below which the travelling tab buttons aren't built
+/// (see `_MainScreenState._buildCollapsibleChrome`).
+const double _kTrailStart = 0.02;
+
 /// Breathing room between a page's last item and the floating glass chrome.
 const double _kScrollEndGap = 16;
 
@@ -707,8 +711,8 @@ class _MainScreenState extends State<MainScreen>
   ///    tab bar has made room for it.
   ///  * Tabs that move to another spot travel there: the leading tab glides
   ///    into the shrinking bar's circle, and each trailing tab detaches from
-  ///    its slot in the bar (glyph solid, glass forming around it) and
-  ///    travels to its corner. Start points come from
+  ///    its slot in the bar (crossfading from the bar's icon, glass forming
+  ///    around it) and travels to its corner. Start points come from
   ///    [GlassTabBar.slotCentre], so this works for any number of tabs.
   ///
   /// The chrome's own box keeps the full height throughout, so the overlap
@@ -727,6 +731,18 @@ class _MainScreenState extends State<MainScreen>
     // Trailing buttons' glass forms early in their trip.
     final trailGlass =
         const Interval(0.05, 0.6, curve: Curves.easeOut).transform(t);
+    // Hand-off of a travelling tab between the bar and its own button: a
+    // short crossfade at the start of the trip (the end, coming back). A
+    // hard switch blinked the bar's label when the spring's bounce dipped
+    // past fully expanded and back.
+    //
+    // The button only exists past _kTrailStart. A glass surface left built
+    // at ~0 visibility isn't invisible on Impeller: over the bar it hid the
+    // Search icon under it (measured ~8% darker; a dark disc in dark mode),
+    // and the spring's small rebound at the end of expanding kept it there
+    // for ~0.2s. Below the threshold the bar alone draws the tab.
+    const trailStart = _kTrailStart;
+    final handoff = ((t - trailStart) / 0.13).clamp(0.0, 1.0);
 
     final safeBottom = MediaQuery.of(context).padding.bottom;
     final bottom = safeBottom > 0 ? safeBottom : 12.0;
@@ -793,9 +809,10 @@ class _MainScreenState extends State<MainScreen>
                 collapsedSize: row,
                 collapsedIndex: layout.leading,
                 detachedTabs: trailing.toSet(),
+                detachProgress: handoff,
               ),
             ),
-            if (raw > 0)
+            if (t > trailStart)
               for (var i = 0; i < trailing.length; i++)
                 Positioned.fromRect(
                   // Travels with the bar's collapse (overshoot included, so
@@ -806,14 +823,21 @@ class _MainScreenState extends State<MainScreen>
                     ignoring: !_chromeCollapsed,
                     child: Transform.scale(
                       scale: 0.85 + 0.15 * trailGlass + over,
-                      child: GlassTabButton(
+                      // Its own backdrop read, not the chrome's shared one:
+                      // that snapshot predates the tab bar, so while the
+                      // button passes over the bar it would paint the raw
+                      // page there (a dark disc in dark mode). This reads
+                      // the finished bar behind it instead.
+                      child: BackdropGroup(
+                        child: GlassTabButton(
                         visibility: trailGlass,
-                        glyphVisibility: 1,
+                        glyphVisibility: handoff,
                         tab: GlassCollapsedTab(
                           item: items[trailing[i]],
                           selected: trailing[i] == _currentIndex,
                           onTap: () => _onGlassTabSelected(trailing[i]),
                         ),
+                      ),
                       ),
                     ),
                   ),

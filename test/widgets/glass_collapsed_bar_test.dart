@@ -170,7 +170,10 @@ void main() {
 
   group('GlassTabBar.collapse', () {
     Future<List<int>> pumpBar(WidgetTester tester, double collapse,
-        {int current = 2, int? collapsedIndex, Set<int> detached = const {}}) async {
+        {int current = 2,
+        int? collapsedIndex,
+        Set<int> detached = const {},
+        double detachProgress = 1}) async {
       final selections = <int>[];
       await tester.pumpWidget(MaterialApp(
         theme: ThemeData(
@@ -189,6 +192,7 @@ void main() {
                 collapse: collapse,
                 collapsedIndex: collapsedIndex,
                 detachedTabs: detached,
+                detachProgress: detachProgress,
                 onTabSelected: selections.add,
               ),
             ),
@@ -198,8 +202,9 @@ void main() {
       return selections;
     }
 
-    Rect glassRect(WidgetTester tester) =>
-        tester.getRect(find.byType(GlassContainer));
+    // The bar's own glass (not the selection bubble's lens inside it).
+    Finder barGlass() => find.byType(GlassContainer).first;
+    Rect glassRect(WidgetTester tester) => tester.getRect(barGlass());
 
     testWidgets('shrinks smoothly into a circle at the leading end',
         (tester) async {
@@ -244,13 +249,13 @@ void main() {
       expect(outsideRows, hasLength(1));
       expect(tester.getCenter(find.byElementPredicate(
               (e) => e == outsideRows.single)),
-          tester.getCenter(find.byType(GlassContainer)));
+          tester.getCenter(barGlass()));
     });
 
     testWidgets('collapsed, tapping the circle selects the current tab',
         (tester) async {
       final selections = await pumpBar(tester, 1, current: 1);
-      await tester.tap(find.byType(GlassContainer));
+      await tester.tap(barGlass());
       await tester.pump(const Duration(milliseconds: 300));
       expect(selections, [1]);
     });
@@ -266,7 +271,7 @@ void main() {
           (e) => e.findAncestorWidgetOfExactType<OverflowBox>() == null);
       expect(circleIcon, hasLength(1));
       expect((circleIcon.single.widget as Icon).color, isNot(_accent));
-      await tester.tap(find.byType(GlassContainer));
+      await tester.tap(barGlass());
       await tester.pump(const Duration(milliseconds: 300));
       expect(selections, [0]);
     });
@@ -302,19 +307,28 @@ void main() {
       expect(GlassTabBar.slotCentre(369, 4, 3), closeTo(369 - 4 - 361 / 8, 1e-9));
     });
 
-    testWidgets('detached tabs leave the bar once it starts collapsing',
+    testWidgets('detached tabs crossfade out of the bar with detachProgress',
         (tester) async {
-      bool searchVisible() => tester
-          .widgetList<Opacity>(find.ancestor(
-              of: find.descendant(
-                  of: find.byKey(GlassTabBar.neutralLayerKey),
-                  matching: find.byIcon(CupertinoIcons.search)),
-              matching: find.byType(Opacity)))
-          .every((o) => o.opacity > 0);
-      await pumpBar(tester, 0, current: 0, detached: {2});
-      expect(searchVisible(), isTrue, reason: 'expanded: drawn by the bar');
-      await pumpBar(tester, 0.1, current: 0, detached: {2});
-      expect(searchVisible(), isFalse);
+      double search() {
+        var o = 1.0;
+        for (final w in tester.widgetList<Opacity>(find.ancestor(
+            of: find.descendant(
+                of: find.byKey(GlassTabBar.neutralLayerKey),
+                matching: find.byIcon(CupertinoIcons.search)),
+            matching: find.byType(Opacity)))) {
+          o *= w.opacity;
+        }
+        return o;
+      }
+
+      await pumpBar(tester, 0, current: 0, detached: {2}, detachProgress: 0);
+      expect(search(), 1, reason: 'expanded: drawn by the bar');
+      await pumpBar(tester, 0.05, current: 0, detached: {2},
+          detachProgress: 0.3);
+      expect(search(), closeTo(0.7 * (1 - 0.05 / 0.6), 0.01),
+          reason: 'part-way through the hand-off');
+      await pumpBar(tester, 0.2, current: 0, detached: {2});
+      expect(search(), 0);
     });
 
     testWidgets('collapsed semantics: one button for the current tab',

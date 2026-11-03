@@ -4,6 +4,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
+import 'package:flutter/scheduler.dart';
 
 /// Tunable look of a [GlassContainer].
 ///
@@ -30,6 +31,7 @@ class GlassStyle {
     this.elevation = 1.0,
     this.rimWidth = 1.0,
     this.fallbackBlurSigma = 20,
+    this.stickiness = 1.0,
   });
 
   /// How far, at the very rim, the glass pulls in content from outside its
@@ -89,6 +91,15 @@ class GlassStyle {
   /// glass falls back to a Gaussian blur of this sigma plus a thicker tint.
   final double fallbackBlurSigma;
 
+  /// How much the rim clings to what the glass moves over (refraction
+  /// shader only). While the glass moves on screen, the content in its bevel
+  /// lags behind the motion like a liquid: at the trailing edge what it just
+  /// passed stays stuck to the rim for a moment, and at the leading edge the
+  /// content reaches out to the edge. When it stops, the rim lets go with a
+  /// small elastic snap. `1` is the system default; `0` turns it off. Still
+  /// glass is unaffected. See `_LiquidGlassLayer._updateDrag`.
+  final double stickiness;
+
   /// Default: see-through centre, frosted lensing edges. Mini-player, tab
   /// bar, toolbars.
   static const GlassStyle regular = GlassStyle();
@@ -145,6 +156,7 @@ class GlassStyle {
         elevation: elevation * t,
         rimWidth: rimWidth,
         fallbackBlurSigma: fallbackBlurSigma * t,
+        stickiness: stickiness * t,
       );
 
   GlassStyle copyWith({
@@ -163,6 +175,7 @@ class GlassStyle {
     double? elevation,
     double? rimWidth,
     double? fallbackBlurSigma,
+    double? stickiness,
   }) {
     return GlassStyle(
       refraction: refraction ?? this.refraction,
@@ -180,6 +193,7 @@ class GlassStyle {
       elevation: elevation ?? this.elevation,
       rimWidth: rimWidth ?? this.rimWidth,
       fallbackBlurSigma: fallbackBlurSigma ?? this.fallbackBlurSigma,
+      stickiness: stickiness ?? this.stickiness,
     );
   }
 
@@ -200,7 +214,8 @@ class GlassStyle {
       other.highlight == highlight &&
       other.elevation == elevation &&
       other.rimWidth == rimWidth &&
-      other.fallbackBlurSigma == fallbackBlurSigma;
+      other.fallbackBlurSigma == fallbackBlurSigma &&
+      other.stickiness == stickiness;
 
   @override
   int get hashCode => Object.hash(
@@ -218,7 +233,8 @@ class GlassStyle {
       highlight,
       elevation,
       rimWidth,
-      fallbackBlurSigma);
+      fallbackBlurSigma,
+      stickiness);
 }
 
 /// Scales the presence of every [GlassContainer] below it (0..1), on top of
@@ -325,6 +341,16 @@ class GlassContainer extends StatefulWidget {
   /// Forces the blur fallback even where the refraction shader is available.
   /// For comparisons and tests.
   static bool debugForceBlurFallback = false;
+
+  /// Whether glass renders with the refraction shader (nearly clear centre,
+  /// lensing at the rim) rather than the blur fallback (blur plus a thicker
+  /// tint). Callers that need see-through glass, such as a lens over
+  /// content that must stay legible, can check this. May turn true shortly
+  /// after startup, once the shader has loaded.
+  static bool get refractionAvailable =>
+      _LiquidGlassProgram.supported &&
+      !debugForceBlurFallback &&
+      _LiquidGlassProgram.program != null;
 
   @override
   State<GlassContainer> createState() => _GlassContainerState();
@@ -474,6 +500,7 @@ class _GlassContainerState extends State<GlassContainer> {
                   ? math.max(baseTint, 0.7 * visibility)
                   : baseTint + 0.06 * press * visibility,
               adaptiveTint: adaptive,
+              stickiness: reduceMotion ? 0 : style.stickiness,
             ),
             child: CustomPaint(
               foregroundPainter: _GlassRimPainter(
@@ -598,6 +625,7 @@ class _GlassOptics {
     required this.tint,
     required this.tintOpacity,
     required this.adaptiveTint,
+    required this.stickiness,
   });
 
   final _GlassShape shape;
@@ -614,6 +642,7 @@ class _GlassOptics {
   final Color tint;
   final double tintOpacity;
   final double adaptiveTint;
+  final double stickiness;
 
   @override
   bool operator ==(Object other) =>
@@ -631,7 +660,8 @@ class _GlassOptics {
       other.highlight == highlight &&
       other.tint == tint &&
       other.tintOpacity == tintOpacity &&
-      other.adaptiveTint == adaptiveTint;
+      other.adaptiveTint == adaptiveTint &&
+      other.stickiness == stickiness;
 
   @override
   int get hashCode => Object.hash(
@@ -648,7 +678,8 @@ class _GlassOptics {
       highlight,
       tint,
       tintOpacity,
-      adaptiveTint);
+      adaptiveTint,
+      stickiness);
 }
 
 /// Applies the refraction shader to the backdrop behind [child].
@@ -725,6 +756,14 @@ class _RenderLiquidGlass extends RenderProxyBox {
   }
 }
 
+/// Rim drag: how far behind (in seconds of the glass's own motion) the rim's
+/// content lags, the spring that carries it, and the cap (as a fraction of
+/// the bevel) so a fast flick can't tear the image apart.
+const double _kDragLag = 0.035;
+const double _kDragStiffness = 320;
+const double _kDragDamping = 0.5;
+const double _kDragCap = 0.9;
+
 /// A backdrop-filter layer that positions the refraction shader at
 /// compositing time.
 ///
@@ -745,6 +784,13 @@ class _LiquidGlassLayer extends BackdropFilterLayer {
 
   ui.ImageFilter? _resolved;
   bool _configuring = false;
+
+  // Rim drag (see GlassStyle.stickiness): a 2D spring, in screen px, pulled
+  // toward the glass's on-screen velocity times [_kDragLag].
+  Offset? _lastCentre;
+  Duration? _lastTime;
+  Offset _drag = Offset.zero;
+  Offset _dragVel = Offset.zero;
 
   /// Applies inherited settings whose setters mark the layer dirty, which a
   /// layer that always re-adds itself may otherwise not do.
@@ -781,6 +827,7 @@ class _LiquidGlassLayer extends BackdropFilterLayer {
     final radius = math.min(o.shape.radiusFor(size).topLeft.x, half);
     final bevel = math.min(o.bevel, half * 0.9);
     final normalRadius = math.min(math.max(radius, bevel), half);
+    final drag = _updateDrag(screenRect.center, o.stickiness, bevel * s);
 
     _shader
       // 0, 1: u_size, set by the engine.
@@ -804,8 +851,67 @@ class _LiquidGlassLayer extends BackdropFilterLayer {
       ..setFloat(19, o.edgeFrost * s)
       ..setFloat(20, o.edgeTint)
       ..setFloat(21, math.min(o.edgeFrostWidth, half) * s)
-      ..setFloat(22, o.edgeMilk);
+      ..setFloat(22, o.edgeMilk)
+      ..setFloat(23, drag.dx)
+      ..setFloat(24, drag.dy);
     return ui.ImageFilter.shader(_shader);
+  }
+
+  /// Advances the rim-drag spring by one frame and returns the current lag
+  /// (screen px), capped at [maxDrag].
+  ///
+  /// Measured from where the glass actually is on screen each frame, so it
+  /// responds to any motion: drags, slides, collapsing chrome, route
+  /// transitions. Only advances during a real frame (not, say, a
+  /// `toImage` capture), and keeps frames coming until it has settled, so
+  /// the release always finishes.
+  Offset _updateDrag(Offset centre, double stickiness, double maxDrag) {
+    final scheduler = SchedulerBinding.instance;
+    if (scheduler.schedulerPhase != SchedulerPhase.persistentCallbacks) {
+      return _drag;
+    }
+    if (stickiness <= 0) {
+      _lastCentre = centre;
+      _drag = _dragVel = Offset.zero;
+      return _drag;
+    }
+    final now = scheduler.currentFrameTimeStamp;
+    final last = _lastTime, lastCentre = _lastCentre;
+    _lastTime = now;
+    _lastCentre = centre;
+    if (last == null || lastCentre == null) return _drag;
+    final dt = (now - last).inMicroseconds / 1e6;
+    if (dt <= 0) return _drag;
+
+    // Gaps (first frame after a pause) and teleports (layout jumps) don't
+    // count as motion.
+    final moved = centre - lastCentre;
+    final velocity = dt > 0.1 || moved.distance > maxDrag * 20
+        ? Offset.zero
+        : moved / dt;
+    var target = velocity * (_kDragLag * stickiness);
+    final cap = maxDrag * _kDragCap;
+    if (target.distance > cap) target = target / target.distance * cap;
+
+    // Semi-implicit Euler in <=1/120s steps, underdamped: the rim lags,
+    // then springs back past rest a touch when the glass stops.
+    final damping = 2 * _kDragDamping * math.sqrt(_kDragStiffness);
+    var remaining = math.min(dt, 0.05);
+    while (remaining > 1e-6) {
+      final h = math.min(remaining, 1 / 120);
+      final accel = (target - _drag) * _kDragStiffness - _dragVel * damping;
+      _dragVel += accel * h;
+      _drag += _dragVel * h;
+      remaining -= h;
+    }
+    if (_drag.distance > cap * 1.3) _drag = _drag / _drag.distance * cap * 1.3;
+
+    if (_drag.distance > 0.05 || _dragVel.distance > 1 || velocity != Offset.zero) {
+      scheduler.scheduleFrame();
+    } else {
+      _drag = _dragVel = Offset.zero;
+    }
+    return _drag;
   }
 
   /// Transform from this layer's coordinates to the root (screen pixels).
