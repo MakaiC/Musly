@@ -170,7 +170,7 @@ void main() {
 
   group('GlassTabBar.collapse', () {
     Future<List<int>> pumpBar(WidgetTester tester, double collapse,
-        {int current = 2, int? collapsedIndex}) async {
+        {int current = 2, int? collapsedIndex, Set<int> detached = const {}}) async {
       final selections = <int>[];
       await tester.pumpWidget(MaterialApp(
         theme: ThemeData(
@@ -188,6 +188,7 @@ void main() {
                 currentIndex: current,
                 collapse: collapse,
                 collapsedIndex: collapsedIndex,
+                detachedTabs: detached,
                 onTabSelected: selections.add,
               ),
             ),
@@ -277,6 +278,43 @@ void main() {
       expect(glassRect(tester).bottom, 600, reason: 'still bottom-aligned');
       await pumpBar(tester, -0.06);
       expect(glassRect(tester).width, greaterThan(369));
+    });
+
+    testWidgets('slotCentre matches where the bar draws each tab, for any '
+        'tab count', (tester) async {
+      await pumpBar(tester, 0);
+      final bar = glassRect(tester);
+      for (final (i, icon) in [
+        (0, CupertinoIcons.music_house),
+        (1, CupertinoIcons.collections),
+        (2, CupertinoIcons.search),
+      ]) {
+        final c = tester.getCenter(find
+            .descendant(
+                of: find.byKey(GlassTabBar.neutralLayerKey),
+                matching: find.byIcon(icon))
+            .first);
+        expect(c.dx, closeTo(bar.left + GlassTabBar.slotCentre(bar.width, 3, i), 0.5));
+        expect(c.dy, closeTo(bar.center.dy + GlassTabBar.iconCentreOffset, 1));
+      }
+      // Four tabs: evenly spread inside the 4pt insets.
+      expect(GlassTabBar.slotCentre(369, 4, 0), closeTo(4 + 361 / 8, 1e-9));
+      expect(GlassTabBar.slotCentre(369, 4, 3), closeTo(369 - 4 - 361 / 8, 1e-9));
+    });
+
+    testWidgets('detached tabs leave the bar once it starts collapsing',
+        (tester) async {
+      bool searchVisible() => tester
+          .widgetList<Opacity>(find.ancestor(
+              of: find.descendant(
+                  of: find.byKey(GlassTabBar.neutralLayerKey),
+                  matching: find.byIcon(CupertinoIcons.search)),
+              matching: find.byType(Opacity)))
+          .every((o) => o.opacity > 0);
+      await pumpBar(tester, 0, current: 0, detached: {2});
+      expect(searchVisible(), isTrue, reason: 'expanded: drawn by the bar');
+      await pumpBar(tester, 0.1, current: 0, detached: {2});
+      expect(searchVisible(), isFalse);
     });
 
     testWidgets('collapsed semantics: one button for the current tab',

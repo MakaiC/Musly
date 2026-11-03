@@ -705,8 +705,11 @@ class _MainScreenState extends State<MainScreen>
   ///    controls fold away so play/pause ends at its trailing edge
   ///    ([MiniPlayer.collapse]). It starts a beat after the tab bar, so the
   ///    tab bar has made room for it.
-  ///  * The trailing tab button(s) swell out of the space the tab bar's end
-  ///    vacates.
+  ///  * Tabs that move to another spot travel there: the leading tab glides
+  ///    into the shrinking bar's circle, and each trailing tab detaches from
+  ///    its slot in the bar (glyph solid, glass forming around it) and
+  ///    travels to its corner. Start points come from
+  ///    [GlassTabBar.slotCentre], so this works for any number of tabs.
   ///
   /// The chrome's own box keeps the full height throughout, so the overlap
   /// reported to pages (and their end padding) never changes and nothing
@@ -721,7 +724,9 @@ class _MainScreenState extends State<MainScreen>
         const Interval(0, 0.85, curve: Curves.easeInOut).transform(t) + over;
     final miniT =
         const Interval(0.1, 1, curve: Curves.easeInOut).transform(t) + over;
-    final trailT = const Interval(0.3, 1, curve: Curves.easeOut).transform(t);
+    // Trailing buttons' glass forms early in their trip.
+    final trailGlass =
+        const Interval(0.05, 0.6, curve: Curves.easeOut).transform(t);
 
     final safeBottom = MediaQuery.of(context).padding.bottom;
     final bottom = safeBottom > 0 ? safeBottom : 12.0;
@@ -735,7 +740,8 @@ class _MainScreenState extends State<MainScreen>
 
     final l10n = AppLocalizations.of(context)!;
     final items = _glassTabItems(l10n);
-    final trailing = _collapsedTrailingTabs();
+    final layout = _collapsedLayout();
+    final trailing = layout.trailing;
 
     return SizedBox(
       height: height,
@@ -744,12 +750,25 @@ class _MainScreenState extends State<MainScreen>
         final rowTop = height - bottom - row;
         final tabTop = height - bottom - tabHeight;
 
-        // Trailing buttons, right to left from the trailing corner.
+        // Trailing buttons' final spots, right to left from the corner.
         Rect trailingRect(int i) {
           final fromEnd = trailing.length - 1 - i;
           final right = width - side - fromEnd * (row + gap);
           return Rect.fromLTRB(right - row, rowTop, right, rowTop + row);
         }
+
+        // Where the full bar draws tab [tab]'s icon: each trailing button
+        // starts its trip there, centred on the icon.
+        Rect slotRect(int tab) => Rect.fromCenter(
+              center: Offset(
+                side +
+                    GlassTabBar.slotCentre(
+                        width - 2 * side, items.length, tab),
+                tabTop + tabHeight / 2 + GlassTabBar.iconCentreOffset,
+              ),
+              width: row,
+              height: row,
+            );
 
         final miniFull = Rect.fromLTWH(side, tabTop - 2 * miniPad - miniHeight,
             width - 2 * side, miniHeight);
@@ -772,20 +791,24 @@ class _MainScreenState extends State<MainScreen>
                 height: tabHeight,
                 collapse: tabT,
                 collapsedSize: row,
-                collapsedIndex: _collapsedLeadingTab(),
+                collapsedIndex: layout.leading,
+                detachedTabs: trailing.toSet(),
               ),
             ),
-            if (trailT > 0)
+            if (raw > 0)
               for (var i = 0; i < trailing.length; i++)
                 Positioned.fromRect(
-                  rect: trailingRect(i),
+                  // Travels with the bar's collapse (overshoot included, so
+                  // it bounces into its corner).
+                  rect: Rect.lerp(
+                      slotRect(trailing[i]), trailingRect(i), tabT)!,
                   child: IgnorePointer(
                     ignoring: !_chromeCollapsed,
                     child: Transform.scale(
-                      // Pops a little past full size with the overshoot.
-                      scale: 0.5 + 0.5 * trailT + 1.5 * over,
+                      scale: 0.85 + 0.15 * trailGlass + over,
                       child: GlassTabButton(
-                        visibility: trailT,
+                        visibility: trailGlass,
+                        glyphVisibility: 1,
                         tab: GlassCollapsedTab(
                           item: items[trailing[i]],
                           selected: trailing[i] == _currentIndex,
@@ -810,16 +833,20 @@ class _MainScreenState extends State<MainScreen>
     );
   }
 
-  /// The tab the collapsed chrome's leading circle (the collapsed tab bar)
-  /// stands for: the current tab, or Home while on Search (Search then has
-  /// the trailing corner).
-  int _collapsedLeadingTab() =>
-      _currentIndex == MainTabs.search ? MainTabs.home : _currentIndex;
-
-  /// The tabs shown as round buttons in the collapsed chrome's trailing
-  /// corner, left to right: always Search (accented while it's the current
-  /// tab), so it's reachable from every page.
-  List<int> _collapsedTrailingTabs() => const [MainTabs.search];
+  /// Which tabs the collapsed chrome shows where. **The one place to edit
+  /// when tabs change:** everything else (start points, the glide into the
+  /// circle, travel to the corners) follows from this and [_glassTabItems].
+  ///
+  ///  * `leading`: the tab the collapsed tab bar's circle stands for: the
+  ///    current tab, or Home while on Search.
+  ///  * `trailing`: round buttons in the trailing corner, left to right:
+  ///    always Search (accented while current), so it's reachable from
+  ///    every page.
+  ({int leading, List<int> trailing}) _collapsedLayout() => (
+        leading:
+            _currentIndex == MainTabs.search ? MainTabs.home : _currentIndex,
+        trailing: const [MainTabs.search],
+      );
 
   void _handleBackButton() {
     final navigatorState = NavigationHelper.appNavigatorKey.currentState;

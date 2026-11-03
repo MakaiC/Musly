@@ -53,6 +53,7 @@ class GlassTabBar extends StatefulWidget {
     this.collapse = 0.0,
     this.collapsedSize = 52,
     this.collapsedIndex,
+    this.detachedTabs = const {},
   }) : assert(items.length > 0);
 
   final List<GlassTabItem> items;
@@ -86,6 +87,24 @@ class GlassTabBar extends StatefulWidget {
   /// neutral colour, and tapping it selects that tab.
   final int? collapsedIndex;
 
+  /// Tabs that leave the bar as their own buttons while it collapses (the
+  /// parent animates those from [slotCentre] to their spot). Above
+  /// [collapse] 0 they're no longer drawn in the bar, so they don't show
+  /// twice.
+  final Set<int> detachedTabs;
+
+  /// Horizontal centre of tab [index]'s slot in a bar [barWidth] wide with
+  /// [count] tabs, from the bar's leading edge. Works for any tab count: use
+  /// it to start a tab's transition from exactly where the bar draws it.
+  static double slotCentre(double barWidth, int count, int index) {
+    final slot = math.max(1.0, (barWidth - 2 * _kBubbleInset) / count);
+    return _kBubbleInset + slot * (index + 0.5);
+  }
+
+  /// Vertical offset of a tab's icon centre from the bar's centre (the icon
+  /// sits above its label).
+  static const double iconCentreOffset = -_kIconCentreOffset;
+
   /// Key of the selection bubble, for tests.
   static const Key bubbleKey = ValueKey<String>('GlassTabBar.bubble');
 
@@ -100,6 +119,10 @@ class GlassTabBar extends StatefulWidget {
 
 /// Inset of the bubble from the bar's edges.
 const double _kBubbleInset = 4;
+
+/// How far above the bar's centre a tab's icon sits (measured from
+/// [_TabSlot]'s layout; keep in sync if that changes).
+const double _kIconCentreOffset = 7;
 
 /// Bubble scale while lifted by a drag.
 const double _kLiftScale = 0.08;
@@ -362,8 +385,7 @@ class _GlassTabBarState extends State<GlassTabBar>
       final index = _clampIndex(widget.collapsedIndex ?? widget.currentIndex);
       final isCurrent = index == _clampIndex(widget.currentIndex);
       // Slide the tabs so that tab's centre meets the circle's.
-      final slot = math.max(1.0, (fullWidth - 2 * _kBubbleInset) / _count);
-      final tabCentre = _kBubbleInset + slot * (index + 0.5);
+      final tabCentre = GlassTabBar.slotCentre(fullWidth, _count, index);
       final dx = c * (size / 2 - tabCentre);
       final item = widget.items[index];
 
@@ -398,7 +420,8 @@ class _GlassTabBarState extends State<GlassTabBar>
                           offset: Offset(dx, 0),
                           child: Opacity(
                             opacity: (1 - c / 0.6).clamp(0.0, 1.0),
-                            child: _buildTabs(context, neutral, accent),
+                            child: _buildTabs(context, neutral, accent,
+                                hideDetached: true),
                           ),
                         ),
                       ),
@@ -433,7 +456,8 @@ class _GlassTabBarState extends State<GlassTabBar>
   }
 
   /// The tabs, bubble and gestures, laid out in the incoming constraints.
-  Widget _buildTabs(BuildContext context, Color neutral, Color accent) {
+  Widget _buildTabs(BuildContext context, Color neutral, Color accent,
+      {bool hideDetached = false}) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     return LayoutBuilder(builder: (context, constraints) {
         final width = constraints.maxWidth;
@@ -486,11 +510,19 @@ class _GlassTabBarState extends State<GlassTabBar>
                       children: [
                         for (var i = 0; i < _count; i++)
                           Expanded(
-                            child: _TabSlot(
-                              item: widget.items[i],
-                              accented: accented,
-                              color: accented ? accent : neutral,
-                              scale: 1 + 0.12 * lift * _proximity(i, pos),
+                            // 0 or 1 only: a detached tab is drawn by its own
+                            // button instead.
+                            child: Opacity(
+                              opacity: hideDetached &&
+                                      widget.detachedTabs.contains(i)
+                                  ? 0
+                                  : 1,
+                              child: _TabSlot(
+                                item: widget.items[i],
+                                accented: accented,
+                                color: accented ? accent : neutral,
+                                scale: 1 + 0.12 * lift * _proximity(i, pos),
+                              ),
                             ),
                           ),
                       ],

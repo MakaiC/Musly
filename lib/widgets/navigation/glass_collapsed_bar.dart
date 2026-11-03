@@ -38,11 +38,17 @@ class GlassTabButton extends StatelessWidget {
     required this.tab,
     this.size = kGlassCollapsedBarHeight,
     this.visibility = 1,
+    this.glyphVisibility,
   });
 
   final GlassCollapsedTab tab;
   final double size;
   final double visibility;
+
+  /// 0..1 opacity of the icon; [visibility] when null. Set it to 1 while the
+  /// button travels out of the tab bar, so the icon carries on solid as the
+  /// glass forms around it.
+  final double? glyphVisibility;
 
   @override
   Widget build(BuildContext context) {
@@ -67,7 +73,7 @@ class GlassTabButton extends StatelessWidget {
         child: Center(
           // The glyph isn't glass, so a plain Opacity is fine for it.
           child: Opacity(
-            opacity: v,
+            opacity: (glyphVisibility ?? v).clamp(0.0, 1.0),
             child: Icon(
               tab.selected ? tab.item.activeIcon : tab.item.icon,
               color: color,
