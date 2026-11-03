@@ -1,7 +1,10 @@
+import 'dart:math' as math;
+
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:musly/widgets/common/glass_container.dart';
 import 'package:musly/widgets/navigation/glass_tab_bar.dart';
 
 const _accent = Color(0xFF007AFF);
@@ -235,7 +238,9 @@ void main() {
         tester.getRect(find.byKey(GlassTabBar.bubbleKey)).width / 2;
     await moveTo(_tabX(tester, 0) + halfWidth);
     final bubble = tester.getRect(find.byKey(GlassTabBar.bubbleKey));
-    expect(bubble.left, moreOrLessEquals(_tabX(tester, 0), epsilon: 0.5));
+    // (Within 1.5pt: the jelly stretch makes the width breathe slightly with
+    // speed. The split below is checked against the actual rect.)
+    expect(bubble.left, moreOrLessEquals(_tabX(tester, 0), epsilon: 1.5));
 
     // Home's icon is half gray (outside) and half accent (under the bubble).
     final home = _tab(tester, 0);
@@ -350,5 +355,96 @@ void main() {
     tester.semantics.tap(find.semantics.byLabel('Home'));
     expect(h.selections, [0]);
     semantics.dispose();
+  });
+
+  testWidgets('holding the bubble grows it; letting go settles it back',
+      (tester) async {
+    final h = _Harness();
+    await h.pump(tester);
+    final rest = tester.getRect(find.byKey(GlassTabBar.bubbleKey));
+
+    final g = await tester.startGesture(rest.center);
+    for (var i = 0; i < 20; i++) {
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    final held = tester.getRect(find.byKey(GlassTabBar.bubbleKey));
+    expect(held.width, greaterThan(rest.width * 1.12));
+    expect(held.center.dx, moreOrLessEquals(rest.center.dx, epsilon: 0.5));
+    expect(h.selections, isEmpty, reason: 'holding selects nothing');
+
+    await g.up();
+    await tester.pumpAndSettle();
+    expect(tester.getRect(find.byKey(GlassTabBar.bubbleKey)).width,
+        moreOrLessEquals(rest.width, epsilon: 0.1));
+  });
+
+  testWidgets('holding elsewhere on the bar does not grow the bubble',
+      (tester) async {
+    final h = _Harness();
+    await h.pump(tester);
+    final rest = tester.getRect(find.byKey(GlassTabBar.bubbleKey));
+    final g = await tester.startGesture(
+        Offset(_tabX(tester, 2), _bar(tester).center.dy));
+    for (var i = 0; i < 20; i++) {
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    expect(tester.getRect(find.byKey(GlassTabBar.bubbleKey)).width,
+        rest.width);
+    await g.up();
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('jelly: stretches while moving fast, wobbles past round when '
+      'it stops, then settles', (tester) async {
+    final h = _Harness();
+    await h.pump(tester);
+    final y = _bar(tester).center.dy;
+    var x = _tabX(tester, 0);
+    final g = await tester.startGesture(Offset(x, y));
+    await tester.pump(const Duration(milliseconds: 16));
+    // Hold still first, so the bubble is lifted and round.
+    await tester.pump(const Duration(milliseconds: 300));
+    final round = tester.getRect(find.byKey(GlassTabBar.bubbleKey));
+
+    final widths = <double>[];
+    for (var i = 0; i < 24; i++) {
+      x += 9;
+      await g.moveTo(Offset(x, y));
+      await tester.pump(const Duration(milliseconds: 16));
+      widths.add(tester.getRect(find.byKey(GlassTabBar.bubbleKey)).width);
+    }
+    final moving = tester.getRect(find.byKey(GlassTabBar.bubbleKey));
+    expect(widths.reduce(math.max), greaterThan(round.width * 1.2));
+    expect(moving.height, lessThan(round.height), reason: 'flatter');
+    // Still tracks the finger: the stretch is symmetric.
+    expect(moving.center.dx, moreOrLessEquals(x, epsilon: 1));
+
+    final after = <double>[];
+    for (var i = 0; i < 40; i++) {
+      await tester.pump(const Duration(milliseconds: 16));
+      after.add(tester.getRect(find.byKey(GlassTabBar.bubbleKey)).width);
+    }
+    expect(after.reduce(math.min), lessThan(round.width - 1),
+        reason: 'rebounds past round');
+    expect(after.last, moreOrLessEquals(round.width, epsilon: 1));
+    await g.up();
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('reduce motion: no jelly', (tester) async {
+    final h = _Harness();
+    await h.pump(tester, reduceMotion: true);
+    final rest = tester.getRect(find.byKey(GlassTabBar.bubbleKey));
+    await tester.tapAt(Offset(_tabX(tester, 2), _bar(tester).center.dy));
+    await tester.pump(const Duration(milliseconds: 16));
+    expect(tester.getRect(find.byKey(GlassTabBar.bubbleKey)).size, rest.size);
+  });
+
+  testWidgets('the glass lens only appears with the refraction shader',
+      (tester) async {
+    final h = _Harness();
+    await h.pump(tester);
+    expect(find.byKey(GlassTabBar.bubbleGlassKey),
+        GlassContainer.refractionAvailable ? findsOneWidget : findsNothing);
   });
 }

@@ -303,6 +303,16 @@ class GlassContainer extends StatefulWidget {
   /// For comparisons and tests.
   static bool debugForceBlurFallback = false;
 
+  /// Whether glass renders with the refraction shader (nearly clear centre,
+  /// lensing at the rim) rather than the blur fallback (blur plus a thicker
+  /// tint). Callers that need see-through glass, such as a lens over
+  /// content that must stay legible, can check this. May turn true shortly
+  /// after startup, once the shader has loaded.
+  static bool get refractionAvailable =>
+      _LiquidGlassProgram.supported &&
+      !debugForceBlurFallback &&
+      _LiquidGlassProgram.program != null;
+
   @override
   State<GlassContainer> createState() => _GlassContainerState();
 }
