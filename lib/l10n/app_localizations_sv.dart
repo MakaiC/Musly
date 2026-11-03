@@ -1187,6 +1187,9 @@ class AppLocalizationsSv extends AppLocalizations {
   String get home => 'Hem';
 
   @override
+  String get newTab => 'New';
+
+  @override
   String get playlistsSection => 'SPELLISTOR';
 
   @override

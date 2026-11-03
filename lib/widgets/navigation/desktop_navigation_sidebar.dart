@@ -14,6 +14,7 @@ import 'package:musly/widgets/common/playlist_artwork.dart';
 import 'package:musly/widgets/modals/playlist_options_modal.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:musly/widgets/dialogs/import_playlist_dialog.dart';
+import 'package:musly/screens/main/main_tabs.dart';
 import 'tv_remote_scope.dart';
 
 class DesktopNavigationSidebar extends StatefulWidget {
@@ -145,25 +146,33 @@ class _DesktopNavigationSidebarState extends State<DesktopNavigationSidebar> {
             icon: Icons.home_outlined,
             activeIcon: Icons.home_rounded,
             label: l10n.home,
-            isSelected: widget.selectedIndex == 0,
+            isSelected: widget.selectedIndex == MainTabs.home,
             isCollapsed: _isCollapsed,
-            onTap: () => widget.onDestinationSelected(0),
+            onTap: () => widget.onDestinationSelected(MainTabs.home),
+          ),
+          _NavItem(
+            icon: Icons.grid_view_outlined,
+            activeIcon: Icons.grid_view_rounded,
+            label: l10n.newTab,
+            isSelected: widget.selectedIndex == MainTabs.newTab,
+            isCollapsed: _isCollapsed,
+            onTap: () => widget.onDestinationSelected(MainTabs.newTab),
           ),
           _NavItem(
             icon: Icons.search_rounded,
             activeIcon: Icons.search_rounded,
             label: l10n.search,
-            isSelected: widget.selectedIndex == 2,
+            isSelected: widget.selectedIndex == MainTabs.search,
             isCollapsed: _isCollapsed,
-            onTap: () => widget.onDestinationSelected(2),
+            onTap: () => widget.onDestinationSelected(MainTabs.search),
           ),
           _NavItem(
             icon: Icons.library_music_outlined,
             activeIcon: Icons.library_music_rounded,
             label: l10n.library,
-            isSelected: widget.selectedIndex == 1,
+            isSelected: widget.selectedIndex == MainTabs.library,
             isCollapsed: _isCollapsed,
-            onTap: () => widget.onDestinationSelected(1),
+            onTap: () => widget.onDestinationSelected(MainTabs.library),
           ),
           _NavItem(
             icon: Icons.settings_outlined,
@@ -182,7 +191,7 @@ class _DesktopNavigationSidebarState extends State<DesktopNavigationSidebar> {
             isCollapsed: _isCollapsed,
             selectedIndex: widget.selectedIndex,
             navigatorKey: widget.navigatorKey,
-            onLibraryTap: () => widget.onDestinationSelected(1),
+            onLibraryTap: () => widget.onDestinationSelected(MainTabs.library),
             onPlaylistsTap: _navigateToPlaylistsList,
             onFavoritesTap: _navigateToFavorites,
             onPlaylistTap: _navigateToPlaylist,

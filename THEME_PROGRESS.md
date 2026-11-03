@@ -1,6 +1,6 @@
 # Liquid Glass theme: progress & handoff
 
-Last updated 2026-11-02 (sliders, branch `slider-work`); previously 2026-11-03 · branch `claude/sleepy-gates-rm92oh` (continues `claude/brave-bohr-80alrl`) · Flutter **3.47.7** (pinned in CI)
+Last updated 2026-11-02 (New tab, branch `new-tab`); before that 2026-11-02 (sliders, branch `slider-work`); 2026-11-03 · branch `claude/sleepy-gates-rm92oh` (continues `claude/brave-bohr-80alrl`) · Flutter **3.47.7** (pinned in CI)
 
 ## Status at a glance
 
@@ -12,7 +12,7 @@ Last updated 2026-11-02 (sliders, branch `slider-work`); previously 2026-11-03 �
 | 2. Bottom navigation bar | 🔶 **In progress (the user's call, 2026-11-03).** `GlassTabBar` is built and committed (`c48b696`); the open work isn't written down yet. Ask the user. The iPhone Duo side placement below is likely part of it. |
 | 3. Now-playing full-screen view | ⬜ **Not started (the user's call, 2026-11-03).** A first glass pass *is* committed (`5000ad8`) and was shown as renders, but the user hasn't accepted it. **Ask whether to iterate on it or redo it** before touching that code. |
 | 4. Library grid (album/artist cards) | ⬜ Not started |
-| 5. New tab | ⬜ Not started (doesn't exist in the codebase yet; see the checklist) |
+| 5. New tab | 🔶 **First version built (branch `new-tab`, 2026-11-02), awaiting the user's review.** Five removable sections; **the user is choosing which to keep** (see "New tab" under "What's built"). Not committed yet. |
 
 **Statuses are the user's.** Where the branch has more code than the status suggests, the status wins: treat that code as an unaccepted draft.
 
@@ -29,9 +29,8 @@ Audited from `lib/screens/**` and the sheets, dialogs and menus they open (2026-
 - [~] Bottom nav / tab bar: `lib/widgets/navigation/glass_tab_bar.dart`, wired in `main_screen.dart`'s `_buildGlassBottomNav`. Built; the user marks it in progress.
 - [ ] Now-playing: `lib/screens/player/now_playing_screen.dart` + `lib/widgets/now_playing/*`. The user marks it not started; an unaccepted draft is in `5000ad8`.
 - [ ] Library grid: the cards in `lib/widgets/cards/` (`album_card`, `artist_card`, `media_card`) and the grid in `lib/screens/main/library_screen.dart`
-- [ ] New tab: planned by the user, **not in the codebase**. `MainScreen` has 3 tabs (`_screens`: Home, Library, Search).
-  - Adding one touches `_screens`, `_buildGlassBottomNav`, the classic `_buildBottomNav`, `DesktopNavigationSidebar` and an l10n label.
-  - Watch out: the **Search easter egg is hard-coded to index 2** (`_onGlassTabSelected` and `_buildBottomNav`). Inserting a tab before Search moves it.
+- [~] New tab: `lib/screens/main/new_screen.dart` + `lib/widgets/new_tab/*`. Built, awaiting the user's pick of sections (see "New tab" below).
+  - `MainScreen` now has 4 tabs: Home, **New**, Library, Search (Apple Music's order). Indices live in `MainTabs` (`lib/screens/main/main_tabs.dart`); **don't use bare numbers**. The Search easter egg now checks `MainTabs.search` (3).
 
 **Main tabs (pages under the chrome)**
 - [ ] Home: `lib/screens/main/home_screen.dart`, with `quick_access_tile`, `media_card` and the favourite-playlists row (`widgets/navigation/favorite_playlists_section.dart`)
@@ -158,6 +157,7 @@ Restyle these components with an iOS 26/27 Liquid Glass look, in this order: min
 | `c48b696` | `GlassTabBar` (`lib/widgets/navigation/glass_tab_bar.dart`) + its widget tests; `_buildGlassBottomNav` uses it |
 | `5000ad8` | Now-playing glass: `GlassIconButton`, `ArtworkBackdrop`, `GlassStyle.control`, `GlassContainer.visibility`, glass branches in the now-playing screen and widgets, + tests |
 | *(branch `slider-work`)* | `ThickBarSlider`: thumb-less thick-bar scrubber and volume slider (both modes), + tests |
+| *(branch `new-tab`, uncommitted)* | New tab: `NewScreen`, the five section widgets, `MainTabs`, the 4th tab in both tab bars and the desktop sidebar, the `newTab` l10n key, + tests |
 
 ## What's built
 
@@ -293,6 +293,67 @@ The user asked (2026-11-02) for both the scrubber and the volume slider to drop 
 - **Tuning knobs:** the four `kThickBar*` constants at the top of the file.
 - **Tests:** `test/widgets/thick_bar_slider_test.dart` (6): idle thickness and no thumb, smooth grow/shrink on touch, reduce motion, tap callbacks, drag tracking and clamping, and the scrubber seeking on release/tap but not mid-drag.
 
+### New tab (`lib/screens/main/new_screen.dart` + `lib/widgets/new_tab/`)
+
+The user asked (2026-11-02) for a New tab loosely modelled on Apple Music's, using **only data the Subsonic/Navidrome API already provides** (no external services), with each section a separate widget so any can be removed.
+
+**Sections, top to bottom. The user is deciding which to keep:**
+
+| # | Section | Widget (file in `lib/widgets/new_tab/`) | What it shows | API calls |
+|---|---|---|---|---|
+| 1 | Featured hero carousel | `FeaturedHeroCarousel` (`featured_hero_carousel.dart`) | The 6 most recently added albums as large swipeable cards: "RECENTLY ADDED" eyebrow, title and artist · year above a 16pt-radius square artwork with a Play pill; page dots below | `getAlbumList2?type=newest&size=6` |
+| 2 | Fresh From Artists You Play | `FreshFromArtistsSection` (`fresh_from_artists_section.dart`) | Newest albums by your most-played artists that you *haven't* been playing (up to 2 per artist, 14 total), "Artist · year"; subtitle "New from A, B and more" | `type=frequent&size=60` to rank artists (rank-weighted, "Various Artists" skipped), then `getArtist` for the top 8. Albums already in the frequent list are dropped; sorted by year, then date added |
+| 3 | Rediscover | `RediscoverSection` (`rediscover_section.dart`) | Starred albums not among your 60 most recently played, shuffled per load (14 max). With fewer than 6, it tops up with most-played albums that also aren't recent | `type=starred&size=200`, `type=recent&size=60`, and `type=frequent&size=40` only when topping up |
+| 4 | Recently Added | `RecentlyAddedSection` (`recently_added_section.dart`) | A horizontal row of newest albums; the header chevron (See All) opens the existing New Releases list | `type=newest&size=20&offset=skip`. `NewScreen` passes `skip: FeaturedHeroCarousel.albumCount` so the row doesn't repeat the carousel |
+| 5 | Mix For You | `MixForYouSection` (`mix_for_you_section.dart`) | A card over a blurred cover: 2×2 cover mosaic, "25 songs", three artists "and more", **Play** (queues the whole mix) and a **new-mix** button that rolls another | `getRandomSongs?size=25` |
+
+**To remove a section:** delete its line from `_NewScreenState._sections` in `new_screen.dart`, then delete its file and its `export` in `new_tab.dart`. If you remove the hero, change `RecentlyAddedSection(skip: …)` to `skip: 0` (the only coupling, and it's commented there).
+
+**Shared plumbing (`new_section.dart`)**
+- `NewSectionState<W, T>`: the base state every section extends. It fetches `T` (30s timeout) and renders a header plus one of four states:
+  - **Loading:** a shimmer row, a shimmer square for the hero, a grey card for the mix.
+  - **Content.**
+  - **Empty:** a per-section hint in an inline card, e.g. "Star albums you love…".
+  - **Error:** "Error loading albums" + **Retry**.
+  - A reload keeps the old content up until new data arrives; only the error state goes back to the placeholder.
+- `NewTabRefreshScope` / `NewTabRefreshRegistry`: sections register themselves, so the page's pull-to-refresh reloads whatever sections are mounted without knowing which exist.
+- Shared helpers: `NewSectionHeader` (Apple-style bold title, chevron when tappable), `NewSectionMessage`, `NewAlbumTile`/`NewAlbumRow` (150pt art, opens `AlbumScreen`), `playNewTabAlbum` (snackbar on failure), `compareAlbumsNewestFirst`.
+- **Page-level state:** in offline or local-files mode the sections are replaced by "New needs your server" (every section needs the server).
+- Page: a 34pt large title "New", sections 32pt apart, ends with `MainScreen.scrollEndPadding(context, 40)`. All text uses theme styles; titles are hard-coded English like the Home tab's. Only the tab label is localised (`newTab`, English in every locale for now).
+
+**Liquid Glass**
+- `newTabUsesGlass(context)` = glass mode **and** the phone layout (mirrors `MainScreen._isLargeScreen`).
+- **Glass where there's content behind it to refract:**
+  - the hero's Play pill (`GlassContainer.capsule`, regular style) over the artwork;
+  - the mix card's Play (`GlassStyle.control` capsule) and new-mix (`GlassIconButton`) over the blurred cover.
+- **Classic mode:** a white pill, an accent pill and a translucent round button instead.
+- **Deliberately not glass:** the empty/error cards. They sit on the flat page background, where clear glass reads as an empty outline.
+- **No `BackdropGroup` around the carousel:** grouped glass shares one snapshot taken at the first glass, so later pages' pills would refract stale content.
+- **No fades over glass** (no `AnimatedSwitcher`/`Opacity`), per the gotcha.
+
+**Tab wiring (`main_screen.dart`, `desktop_navigation_sidebar.dart`)**
+- `MainTabs` constants (home 0, newTab 1, library 2, search 3) replace every bare index: `_screens`, back button, both easter-egg checks, and the sidebar items, which gained a New item.
+- Icons: `CupertinoIcons.square_grid_2x2(_fill)` in both tab bars (as Apple Music), `Icons.grid_view_*` in the sidebar.
+- **TV is untouched** (`tv_main_screen.dart` keeps its own 3-screen list).
+- **There is no collapsed-bar logic on master** (`collapsed-nav` points at the same commit as master), so nothing to update there. If that work lands, it must account for 4 tabs.
+- l10n: `newTab` was added to `app_en.arb`, and its getter was hand-added to the tracked generated files. Running `flutter gen-l10n` with the local 3.47.9 reformats all 30 files, so avoid committing that churn.
+
+**Tests:** `test/widgets/new_tab_sections_test.dart` (9):
+- the hero (features newest, swipes);
+- Recently Added's skip;
+- Fresh From Artists (ranking, played albums excluded, 2 per artist, compilations skipped, subtitle);
+- Rediscover (recent excluded; frequent top-up);
+- the empty state; the error state + Retry;
+- the mix (count, artist line, new-mix refetch);
+- the refresh registry reloading all mounted sections.
+
+**Open questions for the user**
+- Which sections to keep (table above).
+- Hero size (square art plus caption ≈ 470pt tall on a 393pt phone) and whether it should auto-advance (it doesn't now).
+- Whether Rediscover should also count albums you rated highly; it can't use "last played" dates because `Album` doesn't parse `played`. Parsing it would let it say "not played in N months", but that touches the model.
+- Localising section titles (they're English, like Home's).
+- The tab icon.
+
 ### Floating chrome layout (`lib/screens/main/main_screen.dart`)
 
 Glass mode only:
@@ -335,6 +396,11 @@ Builds with the iOS 27 SDK crash on launch without it (`UIApplicationEvaluateRun
 - **Tests:** all widget tests pass. Seven live-network/platform tests (`lrclib_service`, `playlist_import_service`, `update_service` "targetAsset") fail in the container on the untouched base too. The analyzer shows the **16 pre-existing infos (the baseline), no new ones.**
 - **Now-playing (2026-11-03):** rendered glass and classic, portrait and landscape, with a dark sunset cover and a near-white one. Classic is byte-identical to the old code. All 38 chrome renders (mini-player plus tab bar at rest, mid-tap and mid-drag, dark and light) are byte-identical to before the `GlassContainer.visibility` change.
 - **Sliders (2026-11-02, macOS, `flutter test`):** the 6 new `ThickBarSlider` tests and all 84 widget tests pass, including `now_playing_glass_test` (which mounts the real screen in both modes). Analyzer at the 16-info baseline. No renders or device check yet.
+- **New tab (2026-11-02, macOS, `flutter test`, Skia so glass shows the blur fallback):**
+  - All 94 widget tests pass, including the 9 new ones. Analyzer at the 16-info baseline.
+  - A temporary `MainScreen` harness (deleted) checked, in glass and classic modes: 4 tabs showing; New → `NewScreen` (errors per section with no server, as expected); Library → `LibraryScreen` at index 2; 11 Search taps → `FantasyScreen`. Run glass and classic in separate processes; mounting twice throws, and teardown needs `pump(3 min)` for the usage-time timer.
+  - Full-page renders with fake data and real fonts, dark and light at 393pt wide: no overflows. The hero caption needed 80pt; 66 overflowed.
+  - Not yet seen on device or with the refraction shader.
 - **Not verified:** a real device, Metal (iOS), the GLES fallback on older Android, on-device performance, and an Xcode compile of the UIScene changes.
 
 ## Open feedback and issues
@@ -344,12 +410,9 @@ Builds with the iOS 27 SDK crash on launch without it (`UIApplicationEvaluateRun
   - **Center clarity vs. legibility over bright art:** `adaptiveTint`, the tint opacities, `frost`.
   - **Scroll smoothness.** Each is a single `GlassStyle` field.
 - **Now-playing:** waiting on the user's review (they got before/after renders). Likely knobs: the backdrop blur/saturation/drift (`_BlurredArtwork`), the scrim curve (`ArtworkBackdrop`), the pause shrink (`_buildArtwork`), button sizes, and `GlassStyle.control`.
-<<<<<<< HEAD
-- **Tab bar:** tuning knobs if the user asks (they got GIFs of the tap slide and drag). Likely tuning knobs: tap slide duration/curve (`_slideTo`, `_kSlideCurve`), snap spring (`_kSnapSpring`), lift size (`_kLiftScale`), bubble fill (`_BubblePainter`), and the highlight fade (`_highlight`).
 - **Sliders:** waiting on the user's look on device. Knobs: idle/active thickness, hit height, resize duration (`kThickBar*`). **Classic mode changed too**: the user's request covered both sliders without a mode qualifier, unlike the "classic stays unchanged" rule for glass work. If they want classic back, gate on `VolumeSlider.glass` and add a `glass` flag to `PlaybackProgressSlider`.
-=======
-- **Tab bar:** tuning knobs if the user asks (they got GIFs of the tap slide and drag). Likely tuning knobs: tap slide duration/curve (`_slideTo`, `_kSlideCurve`), snap spring (`_kSnapSpring`), lift size (`_kLiftScale`), bubble fill (`_BubblePainter`), and the lens falloff (`_proximity`). Colour comes only from the bubble mask; don't reintroduce per-tab colour fades or snaps.
->>>>>>> navbar-work
+- **Tab bar:** tuning knobs if the user asks (they got GIFs of the tap slide and drag). Likely tuning knobs: tap slide duration/curve (`_slideTo`, `_kSlideCurve`), snap spring (`_kSnapSpring`), lift size (`_kLiftScale`), bubble fill (`_BubblePainter`), and the lens falloff (`_proximity`). Colour comes only from the bubble mask; don't reintroduce per-tab colour fades or snaps. With 4 tabs each slot is narrower; check the bubble width and labels on device.
+- **New tab:** waiting on the user's section picks and a device look. See "New tab" under "What's built" for the open questions.
 - **Legibility over near-white art in dark mode:** with the centre this clear (adaptive tint 0.15), white text over a near-white cover is hard to read. The user was told. Options: raise `adaptiveTint`, or adaptive foreground (glyphs flip dark over bright content, as iOS does), which is a bigger feature.
 - **Dialogs on the inner navigator:** the chrome stays above the dim barrier, as in classic mode. iOS also dims the tab bar. Possible follow-up.
 - **Light mode:** the adaptive tint lifts near-black content behind the glass toward gray. This is by design for legibility, and tunable.

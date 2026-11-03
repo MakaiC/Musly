@@ -1196,6 +1196,9 @@ class AppLocalizationsRu extends AppLocalizations {
   String get home => 'Главная';
 
   @override
+  String get newTab => 'New';
+
+  @override
   String get playlistsSection => 'ПЛЕЙЛИСТЫ';
 
   @override
