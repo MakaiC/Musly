@@ -171,6 +171,70 @@ void main() {
         hasLength(2), reason: 'one tick per tab crossed');
   });
 
+  testWidgets(
+      'icon colour snaps at the hit-zone boundary instead of blending',
+      (tester) async {
+    final h = _Harness();
+    await h.pump(tester);
+    final y = _bar(tester).center.dy;
+    const neutral = Color(0xFF6E6E73); // light theme
+    expect(_iconColor(tester, CupertinoIcons.collections), neutral);
+
+    // Boundary between Home and Library, in screen x.
+    final boundary = _bar(tester).left + 4 + 120;
+    var x = _tabX(tester, 0);
+    final gesture = await tester.startGesture(Offset(x, y));
+    Future<void> moveTo(double target) async {
+      while ((target - x).abs() > 0.01) {
+        x += (target - x).clamp(-4.0, 4.0);
+        await gesture.moveTo(Offset(x, y));
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+    }
+
+    Color? homeColor() {
+      final f = find.byIcon(CupertinoIcons.music_house);
+      return tester.widget<Icon>(f.evaluate().isEmpty
+              ? find.byIcon(CupertinoIcons.music_house_fill)
+              : f)
+          .color;
+    }
+
+    Color? libraryColor() {
+      final f = find.byIcon(CupertinoIcons.collections);
+      return tester.widget<Icon>(f.evaluate().isEmpty
+              ? find.byIcon(CupertinoIcons.collections_solid)
+              : f)
+          .color;
+    }
+
+    // Just short of the boundary: Home fully lit, Library fully neutral.
+    await moveTo(boundary - 2);
+    await tester.pump(const Duration(milliseconds: 200)); // catch-up done
+    expect(homeColor(), _accent);
+    expect(libraryColor(), neutral);
+
+    // Just past it: an instant, complete swap.
+    await moveTo(boundary + 2);
+    expect(homeColor(), neutral);
+    expect(libraryColor(), _accent);
+
+    // Every frame across the whole drag: only pure accent or pure neutral.
+    while (x < _tabX(tester, 2)) {
+      await moveTo(x + 4);
+      final colours = [
+        homeColor(),
+        libraryColor(),
+        _iconColor(tester, CupertinoIcons.search),
+      ];
+      expect(colours.where((c) => c == _accent), hasLength(1));
+      expect(colours.where((c) => c == neutral), hasLength(2));
+    }
+
+    await gesture.up();
+    await tester.pumpAndSettle();
+  });
+
   testWidgets('drag released over the current tab selects nothing',
       (tester) async {
     final h = _Harness();

@@ -26,8 +26,10 @@ class GlassTabItem {
 /// iOS 26-style floating Liquid Glass tab bar.
 ///
 /// A glass capsule ([GlassContainer]) holding the tabs, with a selection
-/// "bubble" behind the selected one. The icon and label under the bubble take
-/// the theme accent; the others stay neutral.
+/// "bubble" behind the selected one. The icon and label of the tab whose hit
+/// zone holds the bubble's centre take the theme accent; the others stay
+/// neutral. The colour switches instantly (no blending) as the bubble crosses
+/// from one tab's zone into the next; only the bubble's position animates.
 ///
 /// The bubble moves along two separate paths:
 ///  * **Tap:** [onTabSelected] fires, and when [currentIndex] changes the
@@ -281,9 +283,16 @@ class _GlassTabBarState extends State<GlassTabBar>
 
   // ---------------------------------------------------------------- build
 
-  /// How strongly tab [i] is lit, from how close the bubble is to it: fully
-  /// lit when the bubble sits on it, fading out as it moves away.
-  double _highlight(int i, double pos) {
+  /// The tab whose hit zone contains the bubble's centre. Only this tab is
+  /// lit, and the switch is instant: the colour snaps rather than blends as
+  /// the bubble crosses a slot boundary. Past the end tabs (rubber-banding)
+  /// the end tab stays lit.
+  int _litIndex(double pos) => _clampIndex(pos.round());
+
+  /// How close the bubble is to tab [i], 1 when centred on it and easing to 0
+  /// as it moves away. Drives only the lens magnification, which should
+  /// follow the bubble smoothly; colour uses [_litIndex].
+  double _proximity(int i, double pos) {
     final d = (pos - i).abs();
     final t = ((d - 0.15) / 0.6).clamp(0.0, 1.0);
     return 1 - t * t * (3 - 2 * t);
@@ -327,6 +336,7 @@ class _GlassTabBarState extends State<GlassTabBar>
                   (1 + _kLiftScale * lift) *
                   (1 + stretch);
               final centre = _kBubbleInset + _slotWidth * (pos + 0.5);
+              final lit = _litIndex(pos);
 
               return Stack(
                 clipBehavior: Clip.none,
@@ -350,7 +360,8 @@ class _GlassTabBarState extends State<GlassTabBar>
                           Expanded(
                             child: _TabSlot(
                               item: widget.items[i],
-                              highlight: _highlight(i, pos),
+                              lit: i == lit,
+                              proximity: _proximity(i, pos),
                               magnify: lift,
                               accent: accent,
                               neutral: neutral,
@@ -374,7 +385,8 @@ class _GlassTabBarState extends State<GlassTabBar>
 class _TabSlot extends StatelessWidget {
   const _TabSlot({
     required this.item,
-    required this.highlight,
+    required this.lit,
+    required this.proximity,
     required this.magnify,
     required this.accent,
     required this.neutral,
@@ -383,7 +395,13 @@ class _TabSlot extends StatelessWidget {
   });
 
   final GlassTabItem item;
-  final double highlight;
+
+  /// Whether the bubble's centre is over this tab. Binary: the tab is
+  /// either fully accented or fully neutral, never in between.
+  final bool lit;
+
+  /// 0..1 closeness of the bubble, for the lens magnification only.
+  final double proximity;
 
   /// 0..1: how lifted the bubble is. Tabs under a lifted bubble grow a
   /// little, as if seen through a lens.
@@ -395,8 +413,8 @@ class _TabSlot extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = Color.lerp(neutral, accent, highlight)!;
-    final scale = 1 + 0.12 * magnify * highlight;
+    final color = lit ? accent : neutral;
+    final scale = 1 + 0.12 * magnify * proximity;
     return Semantics(
       container: true,
       button: true,
@@ -410,7 +428,7 @@ class _TabSlot extends StatelessWidget {
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Icon(
-                highlight >= 0.5 ? item.activeIcon : item.icon,
+                lit ? item.activeIcon : item.icon,
                 color: color,
                 size: 22,
               ),
@@ -423,8 +441,7 @@ class _TabSlot extends StatelessWidget {
                 style: TextStyle(
                   fontSize: 10,
                   height: 1.2,
-                  fontWeight: FontWeight.lerp(
-                      FontWeight.w500, FontWeight.w600, highlight),
+                  fontWeight: lit ? FontWeight.w600 : FontWeight.w500,
                   color: color,
                 ),
               ),
