@@ -1183,6 +1183,9 @@ class AppLocalizationsHi extends AppLocalizations {
   String get home => 'Home';
 
   @override
+  String get newTab => 'New';
+
+  @override
   String get playlistsSection => 'PLAYLISTS';
 
   @override

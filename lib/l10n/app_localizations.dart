@@ -2302,6 +2302,12 @@ abstract class AppLocalizations {
   /// **'Home'**
   String get home;
 
+  /// Label of the New tab (recently added and suggested music) in the tab bar and sidebar, and its page title
+  ///
+  /// In en, this message translates to:
+  /// **'New'**
+  String get newTab;
+
   /// Uppercase section header for playlists in the desktop sidebar
   ///
   /// In en, this message translates to:

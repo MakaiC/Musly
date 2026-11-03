@@ -18,6 +18,8 @@ import 'package:musly/widgets/widgets.dart';
 import 'package:musly/l10n/app_localizations.dart';
 import 'home_screen.dart';
 import 'library_screen.dart';
+import 'main_tabs.dart';
+import 'new_screen.dart';
 import 'search_screen.dart';
 import 'tv_main_screen.dart';
 import 'package:musly/screens/media/fantasy_screen.dart';
@@ -161,12 +163,14 @@ class _SheetOnTopObserver extends NavigatorObserver {
 }
 
 class _MainScreenState extends State<MainScreen> {
-  int _currentIndex = 0;
+  int _currentIndex = MainTabs.home;
   int _searchTapCount = 0;
   DateTime _lastSearchTap = DateTime.fromMillisecondsSinceEpoch(0);
 
+  // Order must match MainTabs.
   final List<Widget> _screens = const [
     HomeScreen(),
+    NewScreen(),
     LibraryScreen(),
     SearchScreen(),
   ];
@@ -634,8 +638,8 @@ class _MainScreenState extends State<MainScreen> {
       return;
     }
 
-    if (_currentIndex != 0) {
-      setState(() => _currentIndex = 0);
+    if (_currentIndex != MainTabs.home) {
+      setState(() => _currentIndex = MainTabs.home);
       return;
     }
 
@@ -658,6 +662,11 @@ class _MainScreenState extends State<MainScreen> {
             label: l10n.home,
           ),
           GlassTabItem(
+            icon: CupertinoIcons.square_grid_2x2,
+            activeIcon: CupertinoIcons.square_grid_2x2_fill,
+            label: l10n.newTab,
+          ),
+          GlassTabItem(
             icon: CupertinoIcons.collections,
             activeIcon: CupertinoIcons.collections_solid,
             label: l10n.library,
@@ -678,7 +687,7 @@ class _MainScreenState extends State<MainScreen> {
     final navigatorState = NavigationHelper.appNavigatorKey.currentState;
     navigatorState?.popUntil((route) => route.isFirst);
 
-    if (idx == 2) {
+    if (idx == MainTabs.search) {
       final now = DateTime.now();
       if (now.difference(_lastSearchTap).inSeconds > 3) {
         _searchTapCount = 0;
@@ -723,7 +732,7 @@ class _MainScreenState extends State<MainScreen> {
                 NavigationHelper.appNavigatorKey.currentState;
             navigatorState?.popUntil((route) => route.isFirst);
 
-            if (index == 2) {
+            if (index == MainTabs.search) {
               final now = DateTime.now();
               if (now.difference(_lastSearchTap).inSeconds > 3) {
                 _searchTapCount = 0;
@@ -748,6 +757,11 @@ class _MainScreenState extends State<MainScreen> {
               icon: const Icon(CupertinoIcons.music_house),
               activeIcon: const Icon(CupertinoIcons.music_house_fill),
               label: l10n.home,
+            ),
+            BottomNavigationBarItem(
+              icon: const Icon(CupertinoIcons.square_grid_2x2),
+              activeIcon: const Icon(CupertinoIcons.square_grid_2x2_fill),
+              label: l10n.newTab,
             ),
             BottomNavigationBarItem(
               icon: const Icon(CupertinoIcons.collections),
