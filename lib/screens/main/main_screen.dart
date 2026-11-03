@@ -2,6 +2,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/physics.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -56,6 +57,12 @@ class _PlayPauseAction extends Action<PlayPauseIntent> {
 
 /// Breathing room between a page's last item and the floating glass chrome.
 const double _kScrollEndGap = 16;
+
+/// Collapse/expand of the floating glass chrome: a soft, slightly
+/// underdamped spring, so the morph takes ~0.5s and overshoots a few percent
+/// before settling (a liquid bounce). Reversing mid-way keeps its speed.
+final SpringDescription _kChromeCollapseSpring =
+    SpringDescription.withDampingRatio(mass: 1, stiffness: 170, ratio: 0.68);
 
 class MainScreen extends StatefulWidget {
   final bool isOfflineMode;
@@ -162,7 +169,8 @@ class _SheetOnTopObserver extends NavigatorObserver {
   void dispose() => sheetOnTop.dispose();
 }
 
-class _MainScreenState extends State<MainScreen> {
+class _MainScreenState extends State<MainScreen>
+    with SingleTickerProviderStateMixin {
   int _currentIndex = MainTabs.home;
   int _searchTapCount = 0;
   DateTime _lastSearchTap = DateTime.fromMillisecondsSinceEpoch(0);
@@ -183,12 +191,62 @@ class _MainScreenState extends State<MainScreen> {
   // Phone layout only: hides the floating glass chrome under bottom sheets.
   final _sheetObserver = _SheetOnTopObserver();
 
+  // Glass phone layout only: the floating chrome collapses into a compact row
+  // once the user scrolls down a page, and stays that way until a tab is
+  // pressed or a page reaches its top. 0 = full chrome, 1 = collapsed.
+  // Unbounded, so the spring's overshoot reaches the morph.
+  late final AnimationController _chromeCollapse =
+      AnimationController.unbounded(vsync: this);
+  bool _chromeCollapsed = false;
+  final _chromeScrollTracker = GlassChromeScrollTracker();
+
+  /// Whether the floating glass chrome is on screen (last build).
+  bool _floatingChromeShown = false;
+
   @override
   void dispose() {
     UsageTimeService().disposeService();
     _backGuard.dispose();
     _sheetObserver.dispose();
+    _chromeCollapse.dispose();
     super.dispose();
+  }
+
+  /// Collapses or expands the floating glass chrome. Safe to call mid-build.
+  void _setChromeCollapsed(bool collapsed) {
+    _chromeScrollTracker.reset();
+    if (_chromeCollapsed == collapsed) return;
+    if (SchedulerBinding.instance.schedulerPhase ==
+        SchedulerPhase.persistentCallbacks) {
+      SchedulerBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _setChromeCollapsed(collapsed);
+      });
+      return;
+    }
+    setState(() => _chromeCollapsed = collapsed);
+    final target = collapsed ? 1.0 : 0.0;
+    if (MediaQuery.disableAnimationsOf(context)) {
+      _chromeCollapse.value = target;
+    } else {
+      _chromeCollapse.animateWith(SpringSimulation(
+        _kChromeCollapseSpring,
+        _chromeCollapse.value,
+        target,
+        _chromeCollapse.velocity,
+        tolerance: const Tolerance(distance: 0.001, velocity: 0.01),
+        // Land exactly on 0 or 1: the layer that's out of the way is only
+        // dropped (not painted) at exactly the end.
+        snapToEnd: true,
+      ));
+    }
+  }
+
+  /// Scroll updates from any page in the inner navigator.
+  bool _onPageScroll(ScrollNotification notification) {
+    if (!_floatingChromeShown || _sheetObserver.sheetOnTop.value) return false;
+    final collapse = _chromeScrollTracker.handle(notification);
+    if (collapse != null) _setChromeCollapsed(collapse);
+    return false;
   }
 
   @override
@@ -196,6 +254,7 @@ class _MainScreenState extends State<MainScreen> {
     super.initState();
 
     NavigationHelper.registerTabChangeCallback((index) {
+      _setChromeCollapsed(false);
       setState(() => _currentIndex = index);
     });
 
@@ -422,6 +481,7 @@ class _MainScreenState extends State<MainScreen> {
         final Widget? floatingChrome = liquidGlass && !keyboardVisible
             ? _buildFloatingGlassChrome(context, hasCurrentSong)
             : null;
+        _floatingChromeShown = floatingChrome != null;
 
         return PopScope(
           canPop: false,
@@ -572,17 +632,21 @@ class _MainScreenState extends State<MainScreen> {
             },
           ),
         Expanded(
-          child: Navigator(
-            key: NavigationHelper.appNavigatorKey,
-            observers: [_backGuard, _sheetObserver],
-            onGenerateRoute: (settings) {
-              return MaterialPageRoute(
-                builder: (_) => LazyIndexedStack(
-                  index: _currentIndex,
-                  children: _screens,
-                ),
-              );
-            },
+          // Scroll direction on any page drives the glass chrome's collapse.
+          child: NotificationListener<ScrollNotification>(
+            onNotification: _onPageScroll,
+            child: Navigator(
+              key: NavigationHelper.appNavigatorKey,
+              observers: [_backGuard, _sheetObserver],
+              onGenerateRoute: (settings) {
+                return MaterialPageRoute(
+                  builder: (_) => LazyIndexedStack(
+                    index: _currentIndex,
+                    children: _screens,
+                  ),
+                );
+              },
+            ),
           ),
         ),
         if (inlineChrome)
@@ -620,16 +684,142 @@ class _MainScreenState extends State<MainScreen> {
       // One shared backdrop for every glass surface in the chrome, so the
       // engine snapshots the content behind it once rather than per surface.
       child: BackdropGroup(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (hasCurrentSong) const MiniPlayer(),
-            _buildGlassBottomNav(context),
-          ],
+        child: AnimatedBuilder(
+          animation: _chromeCollapse,
+          builder: (context, _) =>
+              _buildCollapsibleChrome(context, hasCurrentSong),
         ),
       ),
     );
   }
+
+  /// The floating chrome, morphing between its full and collapsed forms as
+  /// one continuous move ([_chromeCollapse]: 0 full, 1 collapsed).
+  ///
+  /// Every piece is placed by interpolating its rect between the two
+  /// layouts:
+  ///  * The tab bar's glass shrinks toward its leading end into a circle for
+  ///    the current tab ([GlassTabBar.collapse]).
+  ///  * The mini-player drops down into the gap between the corner buttons
+  ///    and narrows, keeping its artwork, title and artist, while its other
+  ///    controls fold away so play/pause ends at its trailing edge
+  ///    ([MiniPlayer.collapse]). It starts a beat after the tab bar, so the
+  ///    tab bar has made room for it.
+  ///  * The trailing tab button(s) swell out of the space the tab bar's end
+  ///    vacates.
+  ///
+  /// The chrome's own box keeps the full height throughout, so the overlap
+  /// reported to pages (and their end padding) never changes and nothing
+  /// reflows mid-scroll. No glass is faded with a fractional Opacity.
+  Widget _buildCollapsibleChrome(BuildContext context, bool hasCurrentSong) {
+    final raw = _chromeCollapse.value;
+    final t = raw.clamp(0.0, 1.0);
+    // The spring's overshoot past either end, carried into the geometry so
+    // every piece bounces as it settles.
+    final over = raw - t;
+    final tabT =
+        const Interval(0, 0.85, curve: Curves.easeInOut).transform(t) + over;
+    final miniT =
+        const Interval(0.1, 1, curve: Curves.easeInOut).transform(t) + over;
+    final trailT = const Interval(0.3, 1, curve: Curves.easeOut).transform(t);
+
+    final safeBottom = MediaQuery.of(context).padding.bottom;
+    final bottom = safeBottom > 0 ? safeBottom : 12.0;
+    const side = 12.0, gap = 8.0;
+    const tabHeight = 62.0, miniHeight = 60.0, miniPad = 4.0;
+    const row = kGlassCollapsedBarHeight;
+    final height = (hasCurrentSong ? miniHeight + 2 * miniPad : 0) +
+        miniPad +
+        tabHeight +
+        bottom;
+
+    final l10n = AppLocalizations.of(context)!;
+    final items = _glassTabItems(l10n);
+    final trailing = _collapsedTrailingTabs();
+
+    return SizedBox(
+      height: height,
+      child: LayoutBuilder(builder: (context, constraints) {
+        final width = constraints.maxWidth;
+        final rowTop = height - bottom - row;
+        final tabTop = height - bottom - tabHeight;
+
+        // Trailing buttons, right to left from the trailing corner.
+        Rect trailingRect(int i) {
+          final fromEnd = trailing.length - 1 - i;
+          final right = width - side - fromEnd * (row + gap);
+          return Rect.fromLTRB(right - row, rowTop, right, rowTop + row);
+        }
+
+        final miniFull = Rect.fromLTWH(side, tabTop - 2 * miniPad - miniHeight,
+            width - 2 * side, miniHeight);
+        final miniCollapsed = Rect.fromLTRB(side + row + gap, rowTop,
+            trailingRect(0).left - gap, rowTop + row);
+        final mini = Rect.lerp(miniFull, miniCollapsed, miniT)!;
+
+        return Stack(
+          clipBehavior: Clip.none,
+          children: [
+            Positioned(
+              left: side,
+              right: side,
+              bottom: bottom,
+              height: tabHeight,
+              child: GlassTabBar(
+                currentIndex: _currentIndex,
+                onTabSelected: _onGlassTabSelected,
+                items: items,
+                height: tabHeight,
+                collapse: tabT,
+                collapsedSize: row,
+                collapsedIndex: _collapsedLeadingTab(),
+              ),
+            ),
+            if (trailT > 0)
+              for (var i = 0; i < trailing.length; i++)
+                Positioned.fromRect(
+                  rect: trailingRect(i),
+                  child: IgnorePointer(
+                    ignoring: !_chromeCollapsed,
+                    child: Transform.scale(
+                      // Pops a little past full size with the overshoot.
+                      scale: 0.5 + 0.5 * trailT + 1.5 * over,
+                      child: GlassTabButton(
+                        visibility: trailT,
+                        tab: GlassCollapsedTab(
+                          item: items[trailing[i]],
+                          selected: trailing[i] == _currentIndex,
+                          onTap: () => _onGlassTabSelected(trailing[i]),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+            // Above the tab bar, so it passes over the shrinking bar's end.
+            if (hasCurrentSong)
+              Positioned(
+                left: mini.left - side,
+                width: mini.width + 2 * side,
+                top: mini.top - miniPad,
+                height: mini.height + 2 * miniPad,
+                child: MiniPlayer(collapse: miniT),
+              ),
+          ],
+        );
+      }),
+    );
+  }
+
+  /// The tab the collapsed chrome's leading circle (the collapsed tab bar)
+  /// stands for: the current tab, or Home while on Search (Search then has
+  /// the trailing corner).
+  int _collapsedLeadingTab() =>
+      _currentIndex == MainTabs.search ? MainTabs.home : _currentIndex;
+
+  /// The tabs shown as round buttons in the collapsed chrome's trailing
+  /// corner, left to right: always Search (accented while it's the current
+  /// tab), so it's reachable from every page.
+  List<int> _collapsedTrailingTabs() => const [MainTabs.search];
 
   void _handleBackButton() {
     final navigatorState = NavigationHelper.appNavigatorKey.currentState;
@@ -639,6 +829,7 @@ class _MainScreenState extends State<MainScreen> {
     }
 
     if (_currentIndex != MainTabs.home) {
+      _setChromeCollapsed(false);
       setState(() => _currentIndex = MainTabs.home);
       return;
     }
@@ -646,44 +837,36 @@ class _MainScreenState extends State<MainScreen> {
     SystemNavigator.pop();
   }
 
-  Widget _buildGlassBottomNav(BuildContext context) {
-    final safeBottom = MediaQuery.of(context).padding.bottom;
-    final l10n = AppLocalizations.of(context)!;
-
-    return Padding(
-      padding: EdgeInsets.fromLTRB(12, 4, 12, safeBottom > 0 ? safeBottom : 12),
-      child: GlassTabBar(
-        currentIndex: _currentIndex,
-        onTabSelected: _onGlassTabSelected,
-        items: [
-          GlassTabItem(
-            icon: CupertinoIcons.music_house,
-            activeIcon: CupertinoIcons.music_house_fill,
-            label: l10n.home,
-          ),
-          GlassTabItem(
-            icon: CupertinoIcons.square_grid_2x2,
-            activeIcon: CupertinoIcons.square_grid_2x2_fill,
-            label: l10n.newTab,
-          ),
-          GlassTabItem(
-            icon: CupertinoIcons.collections,
-            activeIcon: CupertinoIcons.collections_solid,
-            label: l10n.library,
-          ),
-          GlassTabItem(
-            icon: CupertinoIcons.search,
-            activeIcon: CupertinoIcons.search,
-            label: l10n.search,
-          ),
-        ],
-      ),
-    );
-  }
+  /// The glass tabs, in [_screens] (MainTabs) order. Shared by the tab bar
+  /// and the collapsed row.
+  List<GlassTabItem> _glassTabItems(AppLocalizations l10n) => [
+        GlassTabItem(
+          icon: CupertinoIcons.music_house,
+          activeIcon: CupertinoIcons.music_house_fill,
+          label: l10n.home,
+        ),
+        GlassTabItem(
+          icon: CupertinoIcons.square_grid_2x2,
+          activeIcon: CupertinoIcons.square_grid_2x2_fill,
+          label: l10n.newTab,
+        ),
+        GlassTabItem(
+          icon: CupertinoIcons.collections,
+          activeIcon: CupertinoIcons.collections_solid,
+          label: l10n.library,
+        ),
+        GlassTabItem(
+          icon: CupertinoIcons.search,
+          activeIcon: CupertinoIcons.search,
+          label: l10n.search,
+        ),
+      ];
 
   /// Glass tab bar selection (a tap, or a drag released over another tab).
   /// Same behaviour as the classic tab bar's onTap.
   void _onGlassTabSelected(int idx) {
+    // Any tab press (including the collapsed chrome's buttons) expands it.
+    _setChromeCollapsed(false);
     final navigatorState = NavigationHelper.appNavigatorKey.currentState;
     navigatorState?.popUntil((route) => route.isFirst);
 
