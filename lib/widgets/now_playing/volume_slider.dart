@@ -1,10 +1,14 @@
+import 'package:flutter/cupertino.dart' show CupertinoIcons;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:volume_controller/volume_controller.dart';
 import '../../providers/player_provider.dart';
 
 class VolumeSlider extends StatefulWidget {
-  const VolumeSlider({super.key});
+  const VolumeSlider({super.key, this.glass = false});
+
+  /// Liquid Glass look: SF Symbols-style speaker glyphs.
+  final bool glass;
 
   @override
   State<VolumeSlider> createState() => _VolumeSliderState();
@@ -54,7 +58,7 @@ class _VolumeSliderState extends State<VolumeSlider> {
     return Row(
       children: [
         Icon(
-          Icons.volume_mute_rounded,
+          widget.glass ? CupertinoIcons.speaker_fill : Icons.volume_mute_rounded,
           color: Colors.white.withValues(alpha: 0.5),
           size: 20,
         ),
@@ -104,7 +108,7 @@ class _VolumeSliderState extends State<VolumeSlider> {
         ),
         const SizedBox(width: 12),
         Icon(
-          Icons.volume_up_rounded,
+          widget.glass ? CupertinoIcons.speaker_3_fill : Icons.volume_up_rounded,
           color: Colors.white.withValues(alpha: 0.5),
           size: 20,
         ),

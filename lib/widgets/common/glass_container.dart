@@ -104,6 +104,20 @@ class GlassStyle {
     elevation: 0.6,
   );
 
+  /// Small controls such as round icon buttons. Lensing and the frosted
+  /// band are scaled down to suit a small radius, and a little more tint
+  /// keeps the disc visible over smooth backgrounds like blurred artwork.
+  static const GlassStyle control = GlassStyle(
+    refraction: 10,
+    bevel: 12,
+    edgeFrost: 2,
+    edgeFrostWidth: 9,
+    edgeTint: 0.16,
+    lightTintOpacity: 0.10,
+    darkTintOpacity: 0.08,
+    elevation: 0.6,
+  );
+
   /// Softly frosted all over, for larger surfaces carrying dense text.
   static const GlassStyle frosted = GlassStyle(
     frost: 4,
@@ -112,6 +126,26 @@ class GlassStyle {
     darkTintOpacity: 0.32,
     adaptiveTint: 0.3,
   );
+
+  /// This style with every visible effect scaled by [t] (0..1), for
+  /// [GlassContainer.visibility].
+  GlassStyle _fade(double t) => GlassStyle(
+        refraction: refraction * t,
+        bevel: bevel,
+        dispersion: dispersion,
+        frost: frost * t,
+        edgeFrost: edgeFrost * t,
+        edgeFrostWidth: edgeFrostWidth,
+        edgeTint: edgeTint * t,
+        saturation: 1 + (saturation - 1) * t,
+        lightTintOpacity: lightTintOpacity * t,
+        darkTintOpacity: darkTintOpacity * t,
+        adaptiveTint: adaptiveTint * t,
+        highlight: highlight * t,
+        elevation: elevation * t,
+        rimWidth: rimWidth,
+        fallbackBlurSigma: fallbackBlurSigma * t,
+      );
 
   GlassStyle copyWith({
     double? refraction,
@@ -221,6 +255,7 @@ class GlassContainer extends StatefulWidget {
     this.onTap,
     this.onLongPress,
     this.pressScale = 1.015,
+    this.visibility = 1.0,
   }) : _capsule = false;
 
   /// A pill whose corner radius is always half its shortest side.
@@ -234,6 +269,7 @@ class GlassContainer extends StatefulWidget {
     this.onTap,
     this.onLongPress,
     this.pressScale = 1.015,
+    this.visibility = 1.0,
   })  : borderRadius = BorderRadius.zero,
         _capsule = true;
 
@@ -251,6 +287,15 @@ class GlassContainer extends StatefulWidget {
 
   /// Scale applied while pressed (only when [onTap]/[onLongPress] is set).
   final double pressScale;
+
+  /// 0..1: how present the glass is. Below 1 every optical effect (tint,
+  /// lensing, frost, rim light, shadow) is scaled down, so at 0 the surface
+  /// has dissolved into what's behind it. Use this to fade glass in or out:
+  /// **never wrap glass in a fractional [Opacity]/[FadeTransition].** Those
+  /// render into an offscreen layer, which breaks the refraction shader's
+  /// screen coordinates, and the glass then shows the wrong part of the
+  /// screen.
+  final double visibility;
 
   final bool _capsule;
 
@@ -314,7 +359,9 @@ class _GlassContainerState extends State<GlassContainer> {
     final isDark = theme.brightness == Brightness.dark;
     final highContrast = MediaQuery.highContrastOf(context);
     final reduceMotion = MediaQuery.disableAnimationsOf(context);
-    final style = widget.style;
+    final visibility = widget.visibility.clamp(0.0, 1.0);
+    final style =
+        visibility < 1 ? widget.style._fade(visibility) : widget.style;
 
     final ui.FragmentProgram? program = _LiquidGlassProgram.supported &&
             !GlassContainer.debugForceBlurFallback
@@ -350,7 +397,7 @@ class _GlassContainerState extends State<GlassContainer> {
     // A hairline just outside the edge keeps light glass defined against
     // light content, and dark glass defined against bright artwork.
     final outline = Colors.black.withValues(
-        alpha: highContrast ? 0.35 : (isDark ? 0.22 : 0.07));
+        alpha: (highContrast ? 0.35 : (isDark ? 0.22 : 0.07)) * visibility);
 
     final shape = _GlassShape(
       borderRadius: widget.borderRadius,
@@ -396,8 +443,8 @@ class _GlassContainerState extends State<GlassContainer> {
               highlight: highlight,
               tint: tintColor,
               tintOpacity: highContrast
-                  ? math.max(baseTint, 0.7)
-                  : baseTint + 0.06 * press,
+                  ? math.max(baseTint, 0.7 * visibility)
+                  : baseTint + 0.06 * press * visibility,
               adaptiveTint: adaptive,
             ),
             child: CustomPaint(
@@ -412,9 +459,10 @@ class _GlassContainerState extends State<GlassContainer> {
           );
         } else {
           // Blur fallback: no lensing, so lean on blur + a thicker tint.
-          final fallbackOpacity = highContrast
-              ? 0.86
-              : math.min(baseTint + 0.25 + adaptive * 0.3, 0.9);
+          final fallbackOpacity = (highContrast
+                  ? 0.86
+                  : math.min(baseTint + 0.25 + adaptive * 0.3, 0.9)) *
+              visibility;
           final surface = CustomPaint(
             painter: _GlassSurfacePainter(
               tint: Color.alphaBlend(

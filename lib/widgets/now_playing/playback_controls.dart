@@ -1,6 +1,8 @@
+import 'package:flutter/cupertino.dart' show CupertinoIcons;
 import 'package:flutter/material.dart' hide RepeatMode;
 import 'package:flutter/services.dart';
 import '../../providers/player_provider.dart' show RepeatMode;
+import '../common/glass_icon_button.dart';
 
 class PlaybackControls extends StatelessWidget {
   final bool isPlaying;
@@ -14,6 +16,12 @@ class PlaybackControls extends StatelessWidget {
   final VoidCallback onRepeatToggle;
   final Color accentColor;
 
+  /// Liquid Glass look: SF Symbols-style glyphs with no backgrounds; a glass
+  /// disc swells in behind a control while it's pressed, and shuffle/repeat
+  /// sit on a glass disc while they're on. Active glyphs use [accentColor]
+  /// as given.
+  final bool glass;
+
   const PlaybackControls({
     super.key,
     required this.isPlaying,
@@ -26,6 +34,7 @@ class PlaybackControls extends StatelessWidget {
     this.isRepeatEnabled,
     required this.onRepeatToggle,
     this.accentColor = Colors.white,
+    this.glass = false,
   });
 
   RepeatMode get _effectiveRepeatMode {
@@ -38,6 +47,7 @@ class PlaybackControls extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (glass) return _buildGlass(context);
     final mode = _effectiveRepeatMode;
     final isRepeatActive = mode != RepeatMode.off;
     final IconData repeatIcon = mode == RepeatMode.one
@@ -80,6 +90,63 @@ class PlaybackControls extends StatelessWidget {
           activeColor: effectiveActiveColor,
           onTap: onRepeatToggle,
         ),
+      ],
+    );
+  }
+
+  Widget _buildGlass(BuildContext context) {
+    final mode = _effectiveRepeatMode;
+    final isRepeatActive = mode != RepeatMode.off;
+    final idle = Colors.white.withValues(alpha: 0.6);
+
+    Widget toggle(IconData icon, bool active, VoidCallback onTap, String label) {
+      return GlassIconButton(
+        icon: icon,
+        size: 40,
+        iconSize: 19,
+        persistent: active,
+        color: active ? accentColor : idle,
+        semanticLabel: label,
+        onPressed: onTap,
+      );
+    }
+
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+      children: [
+        toggle(CupertinoIcons.shuffle, isShuffleEnabled, onShuffleToggle,
+            'Shuffle'),
+        GlassIconButton(
+          icon: CupertinoIcons.backward_fill,
+          size: 62,
+          iconSize: 32,
+          persistent: false,
+          semanticLabel: 'Previous',
+          onPressed: onPrevious,
+        ),
+        GlassIconButton(
+          icon: isPlaying ? CupertinoIcons.pause_fill : CupertinoIcons.play_fill,
+          size: 76,
+          iconSize: 44,
+          persistent: false,
+          semanticLabel: isPlaying ? 'Pause' : 'Play',
+          onPressed: onPlayPause,
+        ),
+        GlassIconButton(
+          icon: CupertinoIcons.forward_fill,
+          size: 62,
+          iconSize: 32,
+          persistent: false,
+          semanticLabel: 'Next',
+          onPressed: onNext,
+        ),
+        toggle(
+            mode == RepeatMode.one
+                ? CupertinoIcons.repeat_1
+                : CupertinoIcons.repeat,
+            isRepeatActive,
+            onRepeatToggle,
+            'Repeat'),
       ],
     );
   }

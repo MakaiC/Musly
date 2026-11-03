@@ -9,9 +9,9 @@ Last updated 2026-11-03 · branch `claude/sleepy-gates-rm92oh` (continues `claud
 | 1. Mini-player | ✅ Built, plus a polish pass after the user's first look: proportions, clearer centre, frosted rim, stronger refraction. The user approved it from renders and asked to move on. |
 | Floating-chrome layout + page scroll padding | ✅ Built (groundwork for steps 1 and 2) |
 | iOS UIScene lifecycle migration | ✅ Done. **Not yet compiled in Xcode**; the first build is the check |
-| 2. Bottom navigation bar | ✅ Built: `GlassTabBar` with a drag-to-move / tap-to-slide selection bubble. **Waiting on the user's review.** |
-| 3. Now-playing full-screen view | ⏭ Next, once the user signs off on the tab bar |
-| 4. Library grid (album/artist cards) | Not started |
+| 2. Bottom navigation bar | ✅ Built: `GlassTabBar` with a drag-to-move / tap-to-slide selection bubble. The user approved it from GIFs and asked to move on. |
+| 3. Now-playing full-screen view | ✅ Built: blurred-artwork backdrop, `GlassIconButton` controls, glass lyric pill, artwork shrinks while paused. **Waiting on the user's review.** |
+| 4. Library grid (album/artist cards) | ⏭ Next, once the user signs off on now-playing |
 
 Nothing has run on a real device yet. The user's next step is building to their iPhone.
 
@@ -42,7 +42,8 @@ Restyle these components with an iOS 26/27 Liquid Glass look, in this order: min
 | `083ded4` | Restored CRLF in `pubspec.yaml` (the previous commit accidentally converted it to LF) |
 | `9007f21` | iOS UIScene lifecycle migration |
 | `74759d1` | Mini-player polish: 60pt capsule and art geometry; edge-weighted frost/veil, clearer centre and stronger refraction in the shader and `GlassStyle` |
-| *(this session)* | `GlassTabBar` (`lib/widgets/navigation/glass_tab_bar.dart`) + its widget tests; `_buildGlassBottomNav` uses it |
+| `c48b696` | `GlassTabBar` (`lib/widgets/navigation/glass_tab_bar.dart`) + its widget tests; `_buildGlassBottomNav` uses it |
+| *(this session)* | Now-playing glass: `GlassIconButton`, `ArtworkBackdrop`, `GlassStyle.control`, `GlassContainer.visibility`, glass branches in the now-playing screen and widgets, + tests |
 
 ## What's built
 
@@ -51,7 +52,8 @@ Restyle these components with an iOS 26/27 Liquid Glass look, in this order: min
 Every future glass component should use this. Don't restyle surfaces one by one.
 
 - `GlassContainer(...)` / `GlassContainer.capsule(...)`. The capsule radius is always half the shortest side.
-- Params: `child`, `borderRadius`, `style`, `padding`, `width`, `height`, `onTap`, `onLongPress`, `pressScale`.
+- Params: `child`, `borderRadius`, `style`, `padding`, `width`, `height`, `onTap`, `onLongPress`, `pressScale`, `visibility`.
+- **`visibility` (0..1) is how you fade glass.** It scales every optical effect (tint, lensing, frost, rim light, shadow, outline) toward nothing, so at 0 the glass has dissolved into its backdrop. **Never fade glass with a fractional `Opacity`/`FadeTransition`**: see the gotcha under "Shader and compositing".
 - With `onTap`/`onLongPress` set, it acts like interactive iOS glass: it swells to `pressScale` (1.015) and its highlights brighten.
 - Exported from `lib/widgets/widgets.dart`.
 - `GlassContainer.debugForceBlurFallback` forces the fallback path (for comparisons and tests).
@@ -83,6 +85,8 @@ Every future glass component should use this. Don't restyle surfaces one by one.
 | `adaptiveTint` | 0.15 | 0.12 | 0.3 |
 | `highlight`, `elevation`, `rimWidth` | 1, 1, 1 | 1, 0.6, 1 | 1, 1, 1 |
 | `fallbackBlurSigma` | 20 | 20 | 20 |
+
+`GlassStyle.control` is for small round controls (`GlassIconButton`): refraction 10, bevel 12, edge frost 2 over 9pt, edge veil 0.16, tint 0.10 light / 0.08 dark, elevation 0.6. The lensing and frosted band are scaled down for a small radius, with a bit more tint so the disc reads over smooth backgrounds like blurred artwork.
 
 History: bevel/refraction started at 20/18, picked over 16/14 (too subtle) and 24/22 (fisheye at the capsule ends on the old 56pt capsule). The user then asked for noticeably stronger warping (~10–15%+), so it's now 22/22 (+22% pull-in, +10% band). The frost band is kept narrower than the bevel (14 vs 22) so the inner part of the bend stays crisp and the warp stays visible. Previous centre values were tint 0.06/0.05, adaptive 0.45, saturation 1.2; the user found that too opaque.
 
@@ -129,6 +133,33 @@ The user's spec was Apple Music's interaction model, not a static bar: a selecti
 - The bubble is **painted** (`_BubblePainter`), not a nested backdrop filter. A true magnifying-lens bubble that refracts the icons under it would need a nested, ungrouped backdrop and a magnification mode in the shader; that's a possible follow-up.
 - **Tests:** `test/widgets/glass_tab_bar_test.dart` (9 tests) covers the initial state, the tap slide (not a teleport, settled in <½s), slow-drag 1:1 tracking with highlight and haptics, release over the current tab, the flick projection, the bubble returning when a selection isn't adopted, external index changes, reduce motion and semantics.
 
+### Now-playing (`lib/screens/player/now_playing_screen.dart` + `lib/widgets/now_playing/*`)
+
+Glass mode only (`ThemeService.liquidGlass`, read in `build` into `_glass`). Classic is **pixel-identical** to before (playing, paused and pressed renders diffed at 0). Applies to the portrait and landscape layouts; TV keeps `TvNowPlayingScreen`.
+
+- **Backdrop: `ArtworkBackdrop`** (`lib/widgets/now_playing/artwork_backdrop.dart`) replaces `BlurredGradientBackground`. It shows the current cover decoded at 64px, blurred (σ36), saturated ×1.35, scaled ×1.5 and drifting slowly (40s loop: translate, rotate and scale; stops under reduce motion). It cross-fades on track change.
+  - **Scrim:** a top-to-bottom black gradient whose strength follows `brightness`. The screen passes `0.6 × dominant + 0.4 × brightest` palette luminance (`_artworkBrightness`), so a bright highlight (a sun) still darkens it.
+  - **Contrast checks:** a near-white cover went from ~2.6:1 to ~9:1 behind the controls; the dark sunset cover keeps its colour.
+- **`GlassIconButton`** (`lib/widgets/common/glass_icon_button.dart`, exported) is a round glass button.
+  - `persistent: true`: always on a glass disc; the disc swells while pressed.
+  - `persistent: false`: glyph only, and a glass disc swells in behind it while pressed (iOS transport style).
+  - Flipping `persistent` fades the disc in or out via `visibility`, which is how toggles show "on". Changing `icon` cross-fades the glyphs (play/pause).
+  - **The press look starts on the raw `Listener.onPointerDown`.** The tap's own `onTapDown` is held back 100ms here by competing gestures (the page swipe and drag-to-dismiss).
+  - `onTapCancel` releases it when a swipe takes over. A quick tap still shows the full swell before fading (`_releasePending`).
+  - It has button semantics with a label.
+- **What's glass on the screen:**
+  - Top bar: chevron (✕ on the lyrics/queue pages) and ••• in 38pt discs, inset 18pt.
+  - Title row: heart (accent when starred) and + in 36pt discs.
+  - Lyric pill: `GlassContainer.capsule(style: control)`.
+  - Transport: `PlaybackControls(glass: true)`. Cupertino `backward_fill`/`play_fill`·`pause_fill`/`forward_fill` with press-reveal discs (62/76/62pt). Shuffle and repeat get a persistent disc with an accent glyph while on.
+  - Bottom row: `NowPlayingBottomActions(glass: true)`. The lyrics and queue buttons get a persistent disc while their page is showing. The cast button is unchanged.
+  - Volume: `VolumeSlider(glass: true)` only swaps in Cupertino speaker glyphs.
+- **Artwork shrinks to 0.86 while paused** (`_buildArtwork`, `AnimatedScale`, slight-overshoot curve, 480ms), like Apple Music.
+- **Accent:** this screen forces `ThemeData.dark()`, so `Theme.of(context).colorScheme.primary` inside it is stock purple. Glass mode captures the **app accent** before that override (`_appAccent`) and uses it for active states. Classic still uses the palette colour.
+- **One `BackdropGroup` wraps the whole screen**, so all its glass shares one backdrop read.
+- **Not restyled:** the progress slider, the lyrics and queue pages themselves, and the sheets this screen opens (••• menu, add-to-playlist).
+- **Tests:** `test/widgets/glass_icon_button_test.dart` (9) and `test/widgets/now_playing_glass_test.dart` (2). The second mounts the real screen in both modes: glass widget counts, the app accent on the heart, play/pause plus the artwork shrink, shuffle's on state, and classic unchanged.
+
 ### Floating chrome layout (`lib/screens/main/main_screen.dart`)
 
 Glass mode only:
@@ -169,6 +200,7 @@ Builds with the iOS 27 SDK crash on launch without it (`UIApplicationEvaluateRun
 - **Real `MainScreen`, classic mode:** pages stop at 695.5, overlap is 0, and every spacer returns its original value.
 - **Real `MainScreen` with `GlassTabBar` (2026-11-03):** a tap on Library shows `LibraryScreen`; a drag from Library to Search shows `SearchScreen`; 10 more taps on Search open `FantasyScreen`.
 - **Tests:** all widget tests pass. Seven live-network/platform tests (`lrclib_service`, `playlist_import_service`, `update_service` "targetAsset") fail in the container on the untouched base too. The analyzer shows the **16 pre-existing infos (the baseline), no new ones.**
+- **Now-playing (2026-11-03):** rendered glass and classic, portrait and landscape, with a dark sunset cover and a near-white one. Classic is byte-identical to the old code. All 38 chrome renders (mini-player plus tab bar at rest, mid-tap and mid-drag, dark and light) are byte-identical to before the `GlassContainer.visibility` change.
 - **Not verified:** a real device, Metal (iOS), the GLES fallback on older Android, on-device performance, and an Xcode compile of the UIScene changes.
 
 ## Open feedback and issues
@@ -177,7 +209,8 @@ Builds with the iOS 27 SDK crash on launch without it (`UIApplicationEvaluateRun
   - **Edge strength:** `refraction`/`bevel`.
   - **Center clarity vs. legibility over bright art:** `adaptiveTint`, the tint opacities, `frost`.
   - **Scroll smoothness.** Each is a single `GlassStyle` field.
-- **Tab bar:** waiting on the user's review of the interaction (they got GIFs of the tap slide and drag). Likely tuning knobs: tap slide duration/curve (`_slideTo`, `_kSlideCurve`), snap spring (`_kSnapSpring`), lift size (`_kLiftScale`), bubble fill (`_BubblePainter`), and the highlight fade (`_highlight`).
+- **Now-playing:** waiting on the user's review (they got before/after renders). Likely knobs: the backdrop blur/saturation/drift (`_BlurredArtwork`), the scrim curve (`ArtworkBackdrop`), the pause shrink (`_buildArtwork`), button sizes, and `GlassStyle.control`.
+- **Tab bar:** tuning knobs if the user asks (they got GIFs of the tap slide and drag). Likely tuning knobs: tap slide duration/curve (`_slideTo`, `_kSlideCurve`), snap spring (`_kSnapSpring`), lift size (`_kLiftScale`), bubble fill (`_BubblePainter`), and the highlight fade (`_highlight`).
 - **Legibility over near-white art in dark mode:** with the centre this clear (adaptive tint 0.15), white text over a near-white cover is hard to read. The user was told. Options: raise `adaptiveTint`, or adaptive foreground (glyphs flip dark over bright content, as iOS does), which is a bigger feature.
 - **Dialogs on the inner navigator:** the chrome stays above the dim barrier, as in classic mode. iOS also dims the tab bar. Possible follow-up.
 - **Light mode:** the adaptive tint lifts near-black content behind the glass toward gray. This is by design for legibility, and tunable.
@@ -192,11 +225,6 @@ Builds with the iOS 27 SDK crash on launch without it (`UIApplicationEvaluateRun
 - **CarPlay** is still disabled (`#if false`, pending Apple's entitlement).
 
 ## Next in scope
-
-**Step 3: now-playing**
-- Lives in `lib/screens/player/now_playing_screen.dart` and `lib/widgets/now_playing/*`.
-- It's a modal bottom sheet on the **root** navigator, so it isn't affected by the chrome.
-- Glass controls over artwork probably want `GlassStyle.clear`.
 
 **Step 4: library grid**
 - Lives in `lib/widgets/cards/` (`album_card.dart`, `artist_card.dart`, `media_card.dart`) and the grid in `library_screen.dart`.
@@ -223,6 +251,7 @@ Builds with the iOS 27 SDK crash on launch without it (`UIApplicationEvaluateRun
 - **Screen captures:** use `RepaintBoundary.toImage(pixelRatio: dpr)` on a boundary at the **root** (origin 0,0). The shader's coordinates assume that.
 - **Filming interactions:** drive gestures with `startGesture`/`moveTo`, pump in fixed steps, and capture each step. Assemble GIFs **one at a time and crop each frame as soon as it's loaded**; holding full 3x screenshots for two films at once got the worker OOM-killed.
 - **`tester.flingFrom` with a short offset reports zero velocity.** It sends 50 moves, and the velocity tracker keeps only the last 20 samples. If those cover less than the 18px touch slop, it's not a fling. Use offsets of ~50px or more.
+- **Mounting `NowPlayingScreen` in tests:** mock the volume_controller method channel (`com.kurenai7968.volume_controller.method`) *and* its event channel (`...volume_listener_event`, `setMockStreamHandler`). Palette extraction never finishes under the fake clock; pre-warm it with `tester.runAsync(() => PaletteService.extractColors(image, songId))` when the colours matter. Unmount and `pump(3s)` at the end to drain timers. LRCLIB lookups log 400s; that's harmless.
 - **Mounting the real `MainScreen` logs a RenderFlex overflow from the Home page** under the test font. It happens on the untouched base too; `tester.takeException()` it.
 - **Fonts for realistic renders:** Roboto and MaterialIcons from the SDK's `bin/cache/artifacts/material_fonts`, CupertinoIcons from the pub cache.
 - **Switching light/dark between captures:** set `themeAnimationDuration: Duration.zero` on the harness `MaterialApp`. Otherwise a re-pumped app is caught mid-way through its 200ms theme lerp, and you get gray icons and a half-lerped glass tint that look like app bugs but aren't.
@@ -246,6 +275,7 @@ Builds with the iOS 27 SDK crash on launch without it (`UIApplicationEvaluateRun
   - The key's id is private, so the setter is the only way to set it.
 - **Uniform copies:** uniforms are **copied when the filter is created**, so one `FragmentShader` per surface can be mutated every frame.
 - **BackdropGroup trade-off:** grouped surfaces share one snapshot, so they can't see or refract each other (the 2pt sliver).
+- **Fractional `Opacity` breaks glass.** An `Opacity`/`FadeTransition` below 1 renders its subtree into an offscreen layer whose render target isn't the screen. The shader's `FlutterFragCoord`/`u_size` are then relative to that layer, so the glass samples the wrong part of the backdrop (seen as an opaque salmon disc in the first now-playing render). Fade glass with `GlassContainer.visibility`. Route transitions that fade (e.g. Android's zoom transition) will show this briefly on glass inside them.
 
 ### Layout
 - **Inner navigator inset:**

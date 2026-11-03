@@ -13,6 +13,7 @@ export 'common/shimmer_loading.dart';
 export 'common/gradient_header.dart';
 export 'common/blurred_gradient_background.dart';
 export 'common/glass_container.dart';
+export 'common/glass_icon_button.dart';
 export 'common/section_header.dart';
 export 'common/lazy_indexed_stack.dart';
 export 'common/multi_artist_widget.dart';
@@ -49,6 +50,7 @@ export 'now_playing/now_playing_more_menu.dart';
 export 'now_playing/now_playing_bottom_actions.dart';
 export 'now_playing/queue_view.dart';
 export 'now_playing/album_art_view.dart';
+export 'now_playing/artwork_backdrop.dart';
 
 export 'settings/settings_section_card.dart';
 export 'settings/settings_icon_badge.dart';
