@@ -12,7 +12,7 @@ Last updated 2026-11-03 · branch `claude/sleepy-gates-rm92oh` (continues `claud
 | 2. Bottom navigation bar | 🔶 **In progress (the user's call, 2026-11-03).** `GlassTabBar` is built and committed (`c48b696`); the open work isn't written down yet. Ask the user. The iPhone Duo side placement below is likely part of it. |
 | 3. Now-playing full-screen view | ⬜ **Not started (the user's call, 2026-11-03).** A first glass pass *is* committed (`5000ad8`) and was shown as renders, but the user hasn't accepted it. **Ask whether to iterate on it or redo it** before touching that code. |
 | 4. Library grid (album/artist cards) | ⬜ Not started |
-| 5. New tab | ⬜ Not started (doesn't exist in the codebase yet; see the checklist) |
+| 5. New tab ("Add Music") | ⬜ Not started. It's a **feature, not just a restyle**: Lidarr requests, YouTube-to-MP3 and auto-built custom albums. Full plan under "New tab: Add Music" below. |
 
 **Statuses are the user's.** Where the branch has more code than the status suggests, the status wins: treat that code as an unaccepted draft.
 
@@ -29,7 +29,7 @@ Audited from `lib/screens/**` and the sheets, dialogs and menus they open (2026-
 - [~] Bottom nav / tab bar: `lib/widgets/navigation/glass_tab_bar.dart`, wired in `main_screen.dart`'s `_buildGlassBottomNav`. Built; the user marks it in progress.
 - [ ] Now-playing: `lib/screens/player/now_playing_screen.dart` + `lib/widgets/now_playing/*`. The user marks it not started; an unaccepted draft is in `5000ad8`.
 - [ ] Library grid: the cards in `lib/widgets/cards/` (`album_card`, `artist_card`, `media_card`) and the grid in `lib/screens/main/library_screen.dart`
-- [ ] New tab: planned by the user, **not in the codebase**. `MainScreen` has 3 tabs (`_screens`: Home, Library, Search).
+- [ ] New tab (Add Music): planned by the user, **not in the codebase**; see "New tab: Add Music" below. `MainScreen` has 3 tabs (`_screens`: Home, Library, Search).
   - Adding one touches `_screens`, `_buildGlassBottomNav`, the classic `_buildBottomNav`, `DesktopNavigationSidebar` and an l10n label.
   - Watch out: the **Search easter egg is hard-coded to index 2** (`_onGlassTabSelected` and `_buildBottomNav`). Inserting a tab before Search moves it.
 
@@ -127,6 +127,75 @@ Audited from `lib/screens/**` and the sheets, dialogs and menus they open (2026-
 > - **(c)** Keep the bottom chrome but cap its width and pin it to one side.
 >
 > Whatever's chosen, `MainScreen.floatingChromeOverlap`/`scrollEndPadding` assume the chrome sits at the **bottom**. A side rail needs a leading/trailing inset for pages instead.
+
+## New tab: Add Music (planned feature, not started)
+
+The user wants **a new tab in the bottom row for adding new music**. This is a functional feature (new services, new credentials, a server-side helper), not a restyle. Notes below are the user's requirements, kept in full, plus what the audit found. Marked *(user)* = requested, *(suggested)* = mine, to confirm.
+
+### Requirements *(user)*
+
+The tab has three parts:
+
+1. **Lidarr request UI.** Lidarr has its own REST API, separate from Navidrome's Subsonic API.
+   - A new screen and service in Musly calls Lidarr directly: **search for an artist or album, show results, and let the user trigger a "monitor and grab" request.**
+   - Musly would then hold **two sets of credentials/endpoints**: Navidrome's Subsonic API (library and playback, already working) and Lidarr's API (new, for search and request).
+   - It's the same idea as Overseerr/Ombi for Sonarr/Radarr: a friendly request UI in front of the arr app. The user's research found **no prebuilt equivalent for Lidarr** (the user's note; I haven't verified it), so this is custom work.
+2. **YouTube link to MP3 via yt-dlp.** (The user wrote "yt-dip"; I'm reading it as yt-dlp. **Confirm.**)
+   - The user pastes a YouTube link into a text box.
+   - **The server** receives the request, **determines whether the link is valid**, then **downloads it as an `.mp3`**.
+3. **Further features on the YouTube component, "like" custom albums.** The user's example: **creating custom albums that are generated automatically and sorted automatically** for the different songs they get through the YouTube feature. "Other features like" this are expected, but only this one was described, so **ask what else**.
+
+The user's notes also ended with an empty bullet, so more may be coming.
+
+### Findings from the codebase audit
+
+- **Musly's existing yt-dlp code can't do part 2.** `lib/services/ytdlp_service.dart` is for streaming, search and metadata of the YouTube Music source:
+  - It runs a local `yt-dlp` binary on desktop and a `MethodChannel` (`com.devid.musly/ytdlp`) on Android.
+  - **On iOS, `resolveStreamInfo` throws `UnsupportedError('YT Stream is disabled on iOS')`.** The user is on an iPhone, and iOS can't run yt-dlp or ffmpeg anyway.
+  - So **downloading and converting to MP3 has to happen on the server**, as the user described. That means a **companion service on the user's server** (it runs yt-dlp + ffmpeg, validates the URL, writes the MP3 into the Navidrome music folder, and triggers a rescan). **Musly has no such service today, and it isn't in this repo.**
+- **Credentials.** `StorageService` keeps server profiles in `shared_preferences` and passwords in `flutter_secure_storage` (via `_safeSecureRead`/`_safeSecureWrite`, with a fallback).
+  - `ServerConfig` (with `serverFamily`: subsonic, jellyfin, youtube, local) drives library and playback.
+  - Lidarr and the downloader should be a **separate "integration config"**, not new `ServerConfig` families, and the API keys belong in secure storage.
+  - `ServerConfig` already models a LAN URL, self-signed certificates and client certificates. The same options are worth offering for these endpoints.
+- **iOS networking is already fine.** `Info.plist` sets `NSAllowsArbitraryLoads` and has a local-network usage description, so plain-HTTP LAN endpoints (Lidarr is often `http://host:8686`) work without platform config changes.
+- **No rescan call exists.** `SubsonicService` has no `startScan`/`getScanStatus`. After Lidarr imports a download or the companion writes an MP3, the new music needs a Navidrome rescan to show up. Either the companion does it (preferred, since it doesn't touch the Subsonic client), or the client gets a small addition.
+- **Playlists exist, albums don't (yet).** Musly can already create and update playlists through the Subsonic API (`createPlaylist`/`updatePlaylist`). Navidrome builds **albums from file tags**, so a custom *album* means the companion writes the album/albumartist tags (and probably the folder layout); a custom *playlist* is only a list.
+- **Tab bar.** `GlassTabBar` takes a list of items, so a 4th tab is easy. At 393pt each tab would be ~90pt wide.
+  - **The Search easter egg is hard-coded to index 2** (`_onGlassTabSelected` and the classic `_buildBottomNav`). Putting the tab before Search breaks it.
+  - Other places that list the tabs: `_screens`, `_buildBottomNav`, `DesktopNavigationSidebar`, and an l10n label (`l10n.yaml`/arb, Crowdin).
+
+### Suggested shape *(suggested)*
+
+- **Request flow (Lidarr):**
+  - Search artist/album, with results showing cover, name and whether it's already in the library.
+  - A "Request" action adds it as monitored and triggers a search.
+  - A status list: queued, downloading, imported, failed.
+  - Lidarr's own indexers and download client must already be set up; the app only requests.
+- **Lidarr API outline.** This is from my memory of Lidarr's v1 API, **so check it against the user's instance (its Swagger/API docs) before building**:
+  - Auth by `X-Api-Key` header, base `/api/v1/`.
+  - Lookups: `artist/lookup?term=` and `album/lookup?term=`.
+  - Adding an artist needs a root folder, a quality profile and a metadata profile (from `rootfolder`, `qualityprofile`, `metadataprofile`), plus `monitored` and `addOptions`.
+  - Searching/grabbing: `POST command` with `ArtistSearch`/`AlbumSearch`.
+  - Status: `queue`, `wanted/missing`, history.
+- **Link flow (yt-dlp):**
+  - A paste box, with a clipboard-paste shortcut.
+  - The server validates the URL (YouTube/YouTube Music/youtu.be, single video vs playlist) and checks availability without downloading.
+  - The app shows a preview (title, channel, cover, length) before the user confirms.
+  - Then a progress/queue state, and a clear error for private, region-blocked or invalid links.
+  - Duplicate detection against the library.
+  - Metadata cleanup and embedded cover art, so the result sorts properly in Navidrome.
+- **Custom albums:** the user decides how songs are grouped. Candidates: by source/collection name, by date added (e.g. "Added 2026-11"), by artist, or by a user-defined rule, with the tags written automatically at download time.
+
+### Open questions (need the user)
+
+1. **One backend or two?** Either the app talks to Lidarr directly and to a companion service for yt-dlp (three endpoints), or **one companion backend fronts both** (one credential in the app, and Lidarr's powerful API key stays on the server). The user said "two sets" of credentials, which assumes the direct route.
+2. **Where does the companion live and who builds it?** It's outside this Flutter repo. A new repo, a container next to Navidrome/Lidarr, or a script in `tools/`? Its API also needs auth.
+3. **How should custom albums be defined and sorted?** See the candidates above. Albums (tags) or playlists?
+4. **Tab name, icon, position.** For example `CupertinoIcons.plus_circle`/`cloud_download`, and before or after Search. It also needs an l10n label.
+5. **Classic mode too?** The tab is a feature, so classic probably needs it as well; otherwise it only exists when the glass toggle is on.
+6. **Ground rules.** The current rules say don't touch settings screens, the Subsonic client or state management. This feature needs credential entry (a new settings section or in-tab setup), new state and possibly a `startScan` call. **Get explicit approval for each**, as the settings padding fix was.
+7. **Distribution risk.** A feature that downloads YouTube audio may conflict with YouTube's terms and could be a problem in App Store review if the app is distributed publicly. Consider keeping it opt-in, off by default, or only active when a companion endpoint is configured.
+8. **What else is planned?** The notes said "other features like" custom albums and ended with an empty bullet.
 
 ## Scope and ground rules (from the user)
 
@@ -339,7 +408,7 @@ Builds with the iOS 27 SDK crash on launch without it (`UIApplicationEvaluateRun
 
 ## Next in scope
 
-**Before anything else:** reconcile the statuses above with the user (tab bar "in progress", now-playing "not started" despite the draft), and settle the iPhone Duo direction.
+**Before anything else:** reconcile the statuses above with the user (tab bar "in progress", now-playing "not started" despite the draft), settle the iPhone Duo direction, and **go through the "New tab: Add Music" open questions** (that feature needs the ground rules relaxed, and a companion server component that doesn't exist yet).
 
 **Step 4: library grid**
 - Lives in `lib/widgets/cards/` (`album_card.dart`, `artist_card.dart`, `media_card.dart`) and the grid in `library_screen.dart`.
