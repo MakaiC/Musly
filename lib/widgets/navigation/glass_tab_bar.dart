@@ -137,18 +137,17 @@ const double _kIconCentreOffset = 7;
 /// Bubble growth while held or dragged.
 const double _kLiftScale = 0.16;
 
-/// The bubble's glass: a small lens over the tabs. Little tint, so the
-/// accent icon underneath stays crisp; lensing at the rim warps whatever it
-/// passes over. Refraction grows while the bubble is held.
-const GlassStyle _kBubbleGlass = GlassStyle(
-  refraction: 8,
-  bevel: 12,
-  edgeFrost: 1.5,
-  edgeFrostWidth: 7,
-  edgeTint: 0.06,
-  lightTintOpacity: 0.0,
-  darkTintOpacity: 0.0,
-  adaptiveTint: 0.0,
+/// The bubble's glass: a lens over the tabs with the same rim optics as the
+/// tab bar and mini-player (GlassStyle.regular's refraction, bevel, rim
+/// frost and veil), but a completely clear centre: no tint, no adaptive
+/// tint, no frost, no saturation boost, so whatever it hovers over shows through untouched
+/// except where the rim warps it.
+final GlassStyle _kBubbleGlass = GlassStyle.regular.copyWith(
+  saturation: 1,
+  lightTintOpacity: 0,
+  darkTintOpacity: 0,
+  adaptiveTint: 0,
+  frost: 0,
   elevation: 0,
 );
 
@@ -476,7 +475,14 @@ class _GlassTabBarState extends State<GlassTabBar>
       if (raw <= 0 || _expandedWidth == null) _expandedWidth = outer.maxWidth;
       final fullWidth = _expandedWidth!;
       if (raw <= 0) {
-        final capsule = _buildCapsule(context, neutral, accent);
+        final capsule = Stack(
+          fit: StackFit.passthrough,
+          clipBehavior: Clip.none,
+          children: [
+            _buildCapsule(context, neutral, accent),
+            _buildLens(contentWidth: fullWidth, contentHeight: widget.height),
+          ],
+        );
         if (raw == 0) return capsule;
         // Overshooting on the way back: swell a touch, then settle.
         return Transform.scale(
@@ -501,8 +507,17 @@ class _GlassTabBarState extends State<GlassTabBar>
       final tabCentre = GlassTabBar.slotCentre(fullWidth, _count, index);
       final dx = c * (size / 2 - tabCentre);
       final item = widget.items[index];
+      final contentOpacity = (1 - c / 0.6).clamp(0.0, 1.0);
+      // Where the shrinking capsule sits in this box (bottom-left), and
+      // where its tabs are (centred vertically in it, slid by dx).
+      final boxHeight =
+          outer.hasBoundedHeight ? outer.maxHeight : widget.height;
+      final capsuleRect =
+          Rect.fromLTWH(0, boxHeight - height, width, height);
+      final tabsOrigin =
+          Offset(dx, capsuleRect.top + (height - widget.height) / 2);
 
-      return Align(
+      final bar = Align(
         alignment: Alignment.bottomLeft,
         child: Semantics(
           button: true,
@@ -535,8 +550,7 @@ class _GlassTabBarState extends State<GlassTabBar>
                           // no Opacity may wrap it).
                           child: _buildTabs(context, neutral, accent,
                               hideDetached: true,
-                              contentOpacity:
-                                  (1 - c / 0.6).clamp(0.0, 1.0)),
+                              contentOpacity: contentOpacity),
                         ),
                       ),
                     ),
@@ -557,7 +571,101 @@ class _GlassTabBarState extends State<GlassTabBar>
           ),
         ),
       );
+
+      return Stack(
+        fit: StackFit.passthrough,
+        clipBehavior: Clip.none,
+        children: [
+          bar,
+          _buildLens(
+            contentWidth: fullWidth,
+            contentHeight: widget.height,
+            origin: tabsOrigin,
+            clip: RRect.fromRectAndRadius(
+                capsuleRect, Radius.circular(height / 2)),
+            visibility: contentOpacity,
+          ),
+        ],
+      );
     });
+  }
+
+  /// The selection bubble's rect within tabs laid out [width] x [height]:
+  /// its position, lift and jelly stretch. Shared by the tabs (the colour
+  /// window) and the lens, so they always line up.
+  Rect _bubbleRectIn(double width, double height) {
+    final slot = math.max(1.0, (width - 2 * _kBubbleInset) / _count);
+    final lift = _lift.value;
+    final stretch = _reduceMotion ? 0.0 : _stretch;
+    final baseWidth = (slot - _kBubbleInset) * (1 + _kLiftScale * lift);
+    return Rect.fromCenter(
+      center: Offset(_kBubbleInset + slot * (_pos.value + 0.5), height / 2),
+      width: baseWidth * (1 + stretch),
+      height: (height - 2 * _kBubbleInset) *
+          (1 + _kLiftScale * lift) *
+          (1 - 0.4 * stretch),
+    );
+  }
+
+  /// The bubble's glass lens, drawn **over** the bar rather than inside it.
+  ///
+  /// Inside the bar's glass it would render into the bar's offscreen
+  /// subpass (Impeller sizes it to the bar), where the shader's screen
+  /// coordinates are wrong and it samples empty texture: a dark pill. Over
+  /// the bar, in its own [BackdropGroup], it reads the finished bar and tabs
+  /// on screen and refracts them.
+  ///
+  /// [origin] maps tab coordinates ([contentWidth] x [contentHeight]) into
+  /// this bar's box; [clip] keeps it inside a shrinking capsule.
+  Widget _buildLens({
+    required double contentWidth,
+    required double contentHeight,
+    Offset origin = Offset.zero,
+    RRect? clip,
+    double visibility = 1,
+  }) {
+    // Not built when nearly faded: glass left at ~0 visibility still shows
+    // on Impeller (it can hide what's under it).
+    if (!GlassContainer.refractionAvailable || visibility <= 0.02) {
+      return const SizedBox.shrink();
+    }
+    return Positioned.fill(
+      child: IgnorePointer(
+        child: AnimatedBuilder(
+          animation: Listenable.merge([_pos, _lift, _jellyFrame]),
+          builder: (context, _) {
+            final rect =
+                _bubbleRectIn(contentWidth, contentHeight).shift(origin);
+            final Widget lens = Stack(
+              clipBehavior: Clip.none,
+              children: [
+                Positioned.fromRect(
+                  rect: rect,
+                  child: BackdropGroup(
+                    child: GlassContainer.capsule(
+                      key: GlassTabBar.bubbleGlassKey,
+                      style: _kBubbleGlass.copyWith(
+                        refraction: lerpDouble(
+                            _kBubbleGlass.refraction,
+                            _kBubbleGlass.refraction + 4,
+                            _lift.value),
+                      ),
+                      visibility: visibility,
+                      child: const SizedBox.expand(),
+                    ),
+                  ),
+                ),
+              ],
+            );
+            if (clip == null) return lens;
+            return ClipRRect(
+              clipper: _RRectClipper(clip),
+              child: lens,
+            );
+          },
+        ),
+      ),
+    );
   }
 
   /// The expanded bar.
@@ -595,26 +703,15 @@ class _GlassTabBarState extends State<GlassTabBar>
               final pos = _pos.value;
               final lift = _lift.value;
 
-              // Jelly: longer and flatter while moving, wobbling back to
-              // round when it stops. Symmetric, so the bubble's centre still
-              // tracks the finger exactly.
-              final stretch = _reduceMotion ? 0.0 : _stretch;
-              final baseWidth =
-                  (_slotWidth - _kBubbleInset) * (1 + _kLiftScale * lift);
-              final bubbleHeight = (height - 2 * _kBubbleInset) *
-                  (1 + _kLiftScale * lift) *
-                  (1 - 0.4 * stretch);
-              final bubbleWidth = baseWidth * (1 + stretch);
-              final centre = _kBubbleInset + _slotWidth * (pos + 0.5);
-              final bubbleRect = Rect.fromCenter(
-                center: Offset(centre, height / 2),
-                width: bubbleWidth,
-                height: bubbleHeight,
-              );
+              // Position, lift and jelly (longer and flatter while moving,
+              // wobbling back to round; symmetric, so the centre still
+              // tracks the finger exactly).
+              final bubbleRect = _bubbleRectIn(width, height);
               _bubbleRect = bubbleRect;
-              // The lens needs the refraction shader: the blur fallback's
-              // tint and blur would hide the icon under the bubble. Without
-              // it, the painted bubble draws its own rim, as before.
+              // With the lens (drawn over the bar, see _buildLens) the
+              // bubble is see-through: only its lift shadow is painted here.
+              // Without the shader, the painted bubble keeps its fill and
+              // lit rim, as before.
               final lens = GlassContainer.refractionAvailable;
               final bubbleShape = RRect.fromRectAndRadius(
                 bubbleRect,
@@ -663,7 +760,10 @@ class _GlassTabBarState extends State<GlassTabBar>
                       child: CustomPaint(
                         key: GlassTabBar.bubbleKey,
                         painter: _BubblePainter(
-                            isDark: isDark, lift: lift, rim: !lens),
+                            isDark: isDark,
+                            lift: lift,
+                            rim: !lens,
+                            fill: !lens),
                       ),
                     ),
                   ),
@@ -686,26 +786,6 @@ class _GlassTabBarState extends State<GlassTabBar>
                         key: GlassTabBar.accentLayerKey,
                         clipper: _BubbleClipper(bubbleShape, outside: false),
                         child: ExcludeSemantics(child: row(accented: true)),
-                      ),
-                    ),
-                  ),
-                  if (lens)
-                  // The bubble's glass, over the tabs, so it refracts them:
-                  // its rim warps the icons it passes over. Its own
-                  // BackdropGroup, so it reads the tabs just painted rather
-                  // than the chrome's shared snapshot (which predates them).
-                  Positioned.fromRect(
-                    rect: bubbleRect,
-                    child: IgnorePointer(
-                      child: BackdropGroup(
-                        child: GlassContainer.capsule(
-                          key: GlassTabBar.bubbleGlassKey,
-                          style: _kBubbleGlass.copyWith(
-                            refraction: lerpDouble(8, 13, lift),
-                          ),
-                          visibility: contentOpacity,
-                          child: const SizedBox.expand(),
-                        ),
                       ),
                     ),
                   ),
@@ -737,6 +817,18 @@ class _GlassTabBarState extends State<GlassTabBar>
         );
       });
   }
+}
+
+class _RRectClipper extends CustomClipper<RRect> {
+  const _RRectClipper(this.rrect);
+
+  final RRect rrect;
+
+  @override
+  RRect getClip(Size size) => rrect;
+
+  @override
+  bool shouldReclip(_RRectClipper old) => old.rrect != rrect;
 }
 
 /// Clips to the bubble's shape, or to everything outside it.
@@ -822,11 +914,15 @@ class _BubblePainter extends CustomPainter {
     required this.isDark,
     required this.lift,
     this.rim = true,
+    this.fill = true,
   });
 
   final bool isDark;
   final double lift;
   final bool rim;
+
+  /// Off under the lens, so the bubble is completely see-through.
+  final bool fill;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -850,7 +946,7 @@ class _BubblePainter extends CustomPainter {
             Colors.white.withValues(alpha: 0.55),
             lift,
           )!;
-    canvas.drawRRect(shape, Paint()..color = fill);
+    if (this.fill) canvas.drawRRect(shape, Paint()..color = fill);
     if (!rim) return;
 
     // Light catching the top-left of the pill, fading toward the bottom-right.
@@ -875,5 +971,8 @@ class _BubblePainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_BubblePainter old) =>
-      old.isDark != isDark || old.lift != lift || old.rim != rim;
+      old.isDark != isDark ||
+      old.lift != lift ||
+      old.rim != rim ||
+      old.fill != fill;
 }
