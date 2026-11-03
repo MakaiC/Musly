@@ -1,6 +1,6 @@
 # Liquid Glass theme: progress & handoff
 
-Last updated 2026-11-03 · branch `claude/sleepy-gates-rm92oh` (continues `claude/brave-bohr-80alrl`) · Flutter **3.47.7** (pinned in CI)
+Last updated 2026-11-02 (sliders, branch `slider-work`); previously 2026-11-03 · branch `claude/sleepy-gates-rm92oh` (continues `claude/brave-bohr-80alrl`) · Flutter **3.47.7** (pinned in CI)
 
 ## Status at a glance
 
@@ -64,7 +64,7 @@ Audited from `lib/screens/**` and the sheets, dialogs and menus they open (2026-
 - [ ] Queue page: `lib/widgets/now_playing/queue_view.dart`
 - [ ] ⋯ more menu sheet: `lib/widgets/now_playing/now_playing_more_menu.dart`
 - [ ] Add-to menu and the playlist picker sheet: `lib/widgets/now_playing/add_to_menu.dart`
-- [ ] Progress and volume sliders: `lib/widgets/now_playing/playback_progress_slider.dart`, `volume_slider.dart` (the draft only swapped the speaker glyphs)
+- [x] Progress and volume sliders: `lib/widgets/now_playing/playback_progress_slider.dart`, `volume_slider.dart`. Both now use the shared thumb-less `ThickBarSlider` (see "Sliders" below). **Applies in classic and glass mode** (and the TV scrubber), per the user's request.
 
 **Sheets and menus (app-wide)**
 - [ ] Song options (long-press a song): `lib/widgets/modals/song_options_modal.dart`
@@ -156,7 +156,8 @@ Restyle these components with an iOS 26/27 Liquid Glass look, in this order: min
 | `9007f21` | iOS UIScene lifecycle migration |
 | `74759d1` | Mini-player polish: 60pt capsule and art geometry; edge-weighted frost/veil, clearer centre and stronger refraction in the shader and `GlassStyle` |
 | `c48b696` | `GlassTabBar` (`lib/widgets/navigation/glass_tab_bar.dart`) + its widget tests; `_buildGlassBottomNav` uses it |
-| *(this session)* | Now-playing glass: `GlassIconButton`, `ArtworkBackdrop`, `GlassStyle.control`, `GlassContainer.visibility`, glass branches in the now-playing screen and widgets, + tests |
+| `5000ad8` | Now-playing glass: `GlassIconButton`, `ArtworkBackdrop`, `GlassStyle.control`, `GlassContainer.visibility`, glass branches in the now-playing screen and widgets, + tests |
+| *(branch `slider-work`)* | `ThickBarSlider`: thumb-less thick-bar scrubber and volume slider (both modes), + tests |
 
 ## What's built
 
@@ -266,12 +267,31 @@ Glass mode only (`ThemeService.liquidGlass`, read in `build` into `_glass`). Cla
   - Lyric pill: `GlassContainer.capsule(style: control)`.
   - Transport: `PlaybackControls(glass: true)`. Cupertino `backward_fill`/`play_fill`·`pause_fill`/`forward_fill` with press-reveal discs (62/76/62pt). Shuffle and repeat get a persistent disc with an accent glyph while on.
   - Bottom row: `NowPlayingBottomActions(glass: true)`. The lyrics and queue buttons get a persistent disc while their page is showing. The cast button is unchanged.
-  - Volume: `VolumeSlider(glass: true)` only swaps in Cupertino speaker glyphs.
+  - Volume: `VolumeSlider(glass: true)` swaps in Cupertino speaker glyphs. The bar itself is the shared `ThickBarSlider` in both modes (see "Sliders").
 - **Artwork shrinks to 0.86 while paused** (`_buildArtwork`, `AnimatedScale`, slight-overshoot curve, 480ms), like Apple Music.
 - **Accent:** this screen forces `ThemeData.dark()`, so `Theme.of(context).colorScheme.primary` inside it is stock purple. Glass mode captures the **app accent** before that override (`_appAccent`) and uses it for active states. Classic still uses the palette colour.
 - **One `BackdropGroup` wraps the whole screen**, so all its glass shares one backdrop read.
-- **Not restyled:** the progress slider, the lyrics and queue pages themselves, and the sheets this screen opens (••• menu, add-to-playlist).
+- **Not restyled for glass specifically:** the lyrics and queue pages themselves, and the sheets this screen opens (••• menu, add-to-playlist).
 - **Tests:** `test/widgets/glass_icon_button_test.dart` (9) and `test/widgets/now_playing_glass_test.dart` (2). The second mounts the real screen in both modes: glass widget counts, the app accent on the heart, play/pause plus the artwork shrink, shuffle's on state, and classic unchanged.
+
+### Sliders: `ThickBarSlider` (`lib/widgets/common/thick_bar_slider.dart`)
+
+The user asked (2026-11-02) for both the scrubber and the volume slider to drop the track-plus-thumb look for a thick bar, with **one shared widget so they can't drift apart**.
+
+- **No thumb/dot at all.** The fill (clipped to the bar's pill shape, straight trailing edge) and the bar's thickness are the only position indicator.
+- **Thickness:** `kThickBarIdleThickness` 6pt at rest (the old track was 4pt). `kThickBarActiveThickness` 12pt while touched or dragged. One `AnimationController`, 200ms, `easeOutCubic` growing / `easeInOutCubic` shrinking; the painter repaints off the animation, no rebuilds. Reduce motion jumps.
+- **"Touched" starts on `Listener.onPointerDown`**, so the bar grows on contact, before the arena decides tap vs drag. It shrinks on pointer up/cancel once no drag is active.
+- **Touch target:** `kThickBarHitHeight` 30pt for both (volume was 24pt, so the volume row is 6pt taller).
+- **API:** `value` (0..1), `activeColor`, `inactiveColor` (default white 30%), `onChangeStart` / `onChanged` / `onChangeEnd`, `semanticLabel`. Has slider semantics with a percentage value. Exported from `widgets.dart`.
+  - Tap: start → changed → end, all with the tapped value.
+  - Drag: start (with the old value) → changed with the finger position as soon as the drag is recognised, then on every update → end with the last value. The bar shows its own drag value while dragging.
+- **`PlaybackProgressSlider`:** time labels follow the drag (`onChanged`), **seeks only on release** (`onChangeEnd`) and on tap, as before. Colour is still the caller's `accentColor`.
+- **`VolumeSlider`:** sets volume live on every change and on tap, as before; ignores system-volume callbacks while dragging, as before. Fill is white.
+- **Behaviour fixes that fell out of the shared widget:**
+  - The old volume slider mapped the finger against the **whole row's** width (icons included), so the fill lagged the finger. It now maps against the bar.
+  - The old scrubber didn't set its drag value on drag start, so a drag released without an update seeked to 0. It now starts from the finger.
+- **Tuning knobs:** the four `kThickBar*` constants at the top of the file.
+- **Tests:** `test/widgets/thick_bar_slider_test.dart` (6): idle thickness and no thumb, smooth grow/shrink on touch, reduce motion, tap callbacks, drag tracking and clamping, and the scrubber seeking on release/tap but not mid-drag.
 
 ### Floating chrome layout (`lib/screens/main/main_screen.dart`)
 
@@ -314,6 +334,7 @@ Builds with the iOS 27 SDK crash on launch without it (`UIApplicationEvaluateRun
 - **Real `MainScreen` with `GlassTabBar` (2026-11-03):** a tap on Library shows `LibraryScreen`; a drag from Library to Search shows `SearchScreen`; 10 more taps on Search open `FantasyScreen`.
 - **Tests:** all widget tests pass. Seven live-network/platform tests (`lrclib_service`, `playlist_import_service`, `update_service` "targetAsset") fail in the container on the untouched base too. The analyzer shows the **16 pre-existing infos (the baseline), no new ones.**
 - **Now-playing (2026-11-03):** rendered glass and classic, portrait and landscape, with a dark sunset cover and a near-white one. Classic is byte-identical to the old code. All 38 chrome renders (mini-player plus tab bar at rest, mid-tap and mid-drag, dark and light) are byte-identical to before the `GlassContainer.visibility` change.
+- **Sliders (2026-11-02, macOS, `flutter test`):** the 6 new `ThickBarSlider` tests and all 84 widget tests pass, including `now_playing_glass_test` (which mounts the real screen in both modes). Analyzer at the 16-info baseline. No renders or device check yet.
 - **Not verified:** a real device, Metal (iOS), the GLES fallback on older Android, on-device performance, and an Xcode compile of the UIScene changes.
 
 ## Open feedback and issues
@@ -324,6 +345,7 @@ Builds with the iOS 27 SDK crash on launch without it (`UIApplicationEvaluateRun
   - **Scroll smoothness.** Each is a single `GlassStyle` field.
 - **Now-playing:** waiting on the user's review (they got before/after renders). Likely knobs: the backdrop blur/saturation/drift (`_BlurredArtwork`), the scrim curve (`ArtworkBackdrop`), the pause shrink (`_buildArtwork`), button sizes, and `GlassStyle.control`.
 - **Tab bar:** tuning knobs if the user asks (they got GIFs of the tap slide and drag). Likely tuning knobs: tap slide duration/curve (`_slideTo`, `_kSlideCurve`), snap spring (`_kSnapSpring`), lift size (`_kLiftScale`), bubble fill (`_BubblePainter`), and the highlight fade (`_highlight`).
+- **Sliders:** waiting on the user's look on device. Knobs: idle/active thickness, hit height, resize duration (`kThickBar*`). **Classic mode changed too**: the user's request covered both sliders without a mode qualifier, unlike the "classic stays unchanged" rule for glass work. If they want classic back, gate on `VolumeSlider.glass` and add a `glass` flag to `PlaybackProgressSlider`.
 - **Legibility over near-white art in dark mode:** with the centre this clear (adaptive tint 0.15), white text over a near-white cover is hard to read. The user was told. Options: raise `adaptiveTint`, or adaptive foreground (glyphs flip dark over bright content, as iOS does), which is a bigger feature.
 - **Dialogs on the inner navigator:** the chrome stays above the dim barrier, as in classic mode. iOS also dims the tab bar. Possible follow-up.
 - **Light mode:** the adaptive tint lifts near-black content behind the glass toward gray. This is by design for legibility, and tunable.

@@ -14,6 +14,7 @@ export 'common/gradient_header.dart';
 export 'common/blurred_gradient_background.dart';
 export 'common/glass_container.dart';
 export 'common/glass_icon_button.dart';
+export 'common/thick_bar_slider.dart';
 export 'common/section_header.dart';
 export 'common/lazy_indexed_stack.dart';
 export 'common/multi_artist_widget.dart';
