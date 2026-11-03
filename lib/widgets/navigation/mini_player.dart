@@ -19,6 +19,7 @@ import 'package:musly/widgets/common/glass_container.dart';
 import 'package:musly/widgets/navigation/glass_collapsed_bar.dart';
 import 'package:musly/screens/player/now_playing_screen.dart';
 import 'package:musly/widgets/modals/song_options_modal.dart';
+import 'package:musly/widgets/now_playing/now_playing_transition.dart';
 
 const double _kGlassMiniPlayerHeight = 60;
 
@@ -75,24 +76,23 @@ class MiniPlayer extends StatelessWidget {
                 : const AssetImage('assets/logo.png') as ImageProvider;
             final topPadding = MediaQuery.of(context).padding.top;
 
-            showModalBottomSheet(
-              context: context,
-              isScrollControlled: true,
-              useRootNavigator: true,
-              backgroundColor: Colors.transparent,
-              constraints: const BoxConstraints(maxWidth: double.infinity),
-              builder: (ctx) => NowPlayingScreen(
-                topPadding: topPadding,
-                image: imageProvider,
-                title: currentSong.title,
-                artist: (currentSong.artistParticipants?.isNotEmpty == true
-                        ? currentSong.artistParticipants!
-                            .map((a) => a.name)
-                            .join(', ')
-                        : currentSong.artist) ??
-                    '',
-                heroTag: 'cover_${currentSong.id}',
-                song: currentSong,
+            // The art flies out of this mini-player and the view grows
+            // around it (NowPlayingTransition).
+            Navigator.of(context, rootNavigator: true).push(
+              NowPlayingRoute<void>(
+                builder: (ctx) => NowPlayingScreen(
+                  topPadding: topPadding,
+                  image: imageProvider,
+                  title: currentSong.title,
+                  artist: (currentSong.artistParticipants?.isNotEmpty == true
+                          ? currentSong.artistParticipants!
+                              .map((a) => a.name)
+                              .join(', ')
+                          : currentSong.artist) ??
+                      '',
+                  heroTag: 'cover_${currentSong.id}',
+                  song: currentSong,
+                ),
               ),
             );
           }
@@ -138,8 +138,11 @@ class MiniPlayer extends StatelessWidget {
         );
 
         if (isGlass) {
-          // iOS 26-style floating Liquid Glass capsule.
-          return RepaintBoundary(
+          // iOS 26-style floating Liquid Glass capsule. The anchor is the
+          // shape the now-playing view compacts into (NowPlayingTransition).
+          return NowPlayingCapsuleAnchor(
+           inset: const EdgeInsets.fromLTRB(12, 4, 12, 4),
+           child: RepaintBoundary(
             child: Padding(
               padding: const EdgeInsets.fromLTRB(12, 4, 12, 4),
               child: GlassContainer.capsule(
@@ -163,10 +166,13 @@ class MiniPlayer extends StatelessWidget {
                 ),
               ),
             ),
+           ),
           );
         }
 
-        return RepaintBoundary(
+        return NowPlayingCapsuleAnchor(
+         capsule: false,
+         child: RepaintBoundary(
           child: GestureDetector(
             onTap: handleTap,
             onLongPress: currentSong != null
@@ -200,6 +206,7 @@ class MiniPlayer extends StatelessWidget {
               ),
             ),
           ),
+         ),
         );
       },
     );
@@ -357,8 +364,11 @@ class _MiniPlayerRow extends StatelessWidget {
               child: const Icon(Icons.radio, color: Colors.white, size: 24),
             )
           else
-            AlbumArtwork(
-                coverArt: coverArt, size: artSize, borderRadius: artRadius),
+            NowPlayingArtAnchor(
+              borderRadius: artRadius,
+              child: AlbumArtwork(
+                  coverArt: coverArt, size: artSize, borderRadius: artRadius),
+            ),
           const SizedBox(width: 12),
           Expanded(
             child: Column(

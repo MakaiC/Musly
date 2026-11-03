@@ -281,7 +281,7 @@ class MuslyApp extends StatelessWidget {
         }
 
         return MaterialApp(
-          title: 'Musly',
+          title: 'Navinix',
           debugShowCheckedModeBanner: false,
           theme: light,
           darkTheme: dark,

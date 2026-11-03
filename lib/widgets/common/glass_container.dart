@@ -221,6 +221,29 @@ class GlassStyle {
       fallbackBlurSigma);
 }
 
+/// Scales the presence of every [GlassContainer] below it (0..1), on top of
+/// each container's own [GlassContainer.visibility].
+///
+/// At 0 the glass doesn't just dissolve: it drops its backdrop filter
+/// entirely and paints only its child. That makes it safe inside a fractional
+/// [Opacity]/[FadeTransition], which otherwise breaks the refraction (see
+/// [GlassContainer.visibility]). A screen that fades in glass-bearing content
+/// keeps the presence at 0 while the fade's opacity is below 1, then ramps it
+/// up once the content is fully opaque.
+class GlassPresence extends InheritedNotifier<ValueListenable<double>> {
+  const GlassPresence({
+    super.key,
+    required ValueListenable<double> presence,
+    required super.child,
+  }) : super(notifier: presence);
+
+  /// The presence for [context], or 1 when there is no [GlassPresence].
+  static double of(BuildContext context) {
+    final scope = context.dependOnInheritedWidgetOfExactType<GlassPresence>();
+    return (scope?.notifier?.value ?? 1.0).clamp(0.0, 1.0);
+  }
+}
+
 /// An iOS 26 "Liquid Glass" surface.
 ///
 /// On Impeller (iOS, modern Android) the backdrop goes through a refraction
@@ -359,7 +382,8 @@ class _GlassContainerState extends State<GlassContainer> {
     final isDark = theme.brightness == Brightness.dark;
     final highContrast = MediaQuery.highContrastOf(context);
     final reduceMotion = MediaQuery.disableAnimationsOf(context);
-    final visibility = widget.visibility.clamp(0.0, 1.0);
+    final presence = GlassPresence.of(context);
+    final visibility = (widget.visibility * presence).clamp(0.0, 1.0);
     final style =
         visibility < 1 ? widget.style._fade(visibility) : widget.style;
 
@@ -422,7 +446,11 @@ class _GlassContainerState extends State<GlassContainer> {
             style.highlight * (highContrast ? 1.3 : 1.0) * (1 + 0.8 * press);
 
         final Widget filtered;
-        if (program != null) {
+        if (presence <= 0) {
+          // Fully absent (see GlassPresence): no backdrop read at all, so an
+          // enclosing fade can't break it.
+          filtered = child!;
+        } else if (program != null) {
           // Refraction path: the shader handles tint and bevel light.
           filtered = _LiquidGlassFilter(
             program: program,

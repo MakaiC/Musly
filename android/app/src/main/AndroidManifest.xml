@@ -42,7 +42,7 @@
     </queries>
     
     <application
-        android:label="musly"
+        android:label="Navinix"
         android:name=".MuslyApplication"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher_round"
