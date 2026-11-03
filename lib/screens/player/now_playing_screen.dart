@@ -11,6 +11,7 @@ import 'package:musly/widgets/now_playing/playback_controls.dart';
 import 'package:musly/widgets/now_playing/playback_progress_slider.dart';
 import 'package:musly/widgets/now_playing/volume_slider.dart';
 import 'package:musly/widgets/now_playing/now_playing_bottom_actions.dart';
+import 'package:musly/widgets/now_playing/now_playing_transition.dart';
 import 'lyrics_screen.dart';
 import 'package:musly/models/lyric_line.dart';
 import 'package:provider/provider.dart';
@@ -71,6 +72,10 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   /// The app's accent colour. This screen forces a stock dark theme, so it is
   /// captured before that; glass mode uses it for active states.
   Color _appAccent = const Color(0xFFFA243C);
+
+  /// The open/close animation, when opened from the mini-player
+  /// ([NowPlayingRoute]). Null elsewhere (desktop, TV, tests).
+  NowPlayingTransitionState? _transition;
 
   @override
   void initState() {
@@ -271,6 +276,8 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       _syncLyricsWakelock(page: 0);
       _pageController.animateToPage(0,
           duration: const Duration(milliseconds: 300), curve: Curves.easeInOut);
+    } else if (_transition != null) {
+      _transition!.close();
     } else {
       Navigator.of(context).pop();
     }
@@ -303,19 +310,27 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
   /// The artwork. In glass mode it shrinks a little while paused, like Apple
   /// Music, and springs back when playback resumes.
   Widget _buildArtwork(PlayerProvider provider, Song? currentSong) {
+    final image = _currentImageProvider ?? widget.image;
     final Widget art = AlbumArtView(
-      image: _currentImageProvider ?? widget.image,
+      image: image,
       tag: currentSong?.id ?? widget.heroTag,
     );
-    if (!_glass) return art;
-    return AnimatedScale(
-      scale: provider.isPlaying ? 1.0 : 0.86,
-      duration: MediaQuery.disableAnimationsOf(context)
-          ? Duration.zero
-          : const Duration(milliseconds: 480),
-      curve: const Cubic(0.34, 1.25, 0.64, 1.0),
-      child: art,
-    );
+    final double scale = _glass && !provider.isPlaying ? 0.86 : 1.0;
+    final Widget result = !_glass
+        ? art
+        : AnimatedScale(
+            scale: scale,
+            duration: MediaQuery.disableAnimationsOf(context)
+                ? Duration.zero
+                : const Duration(milliseconds: 480),
+            curve: const Cubic(0.34, 1.25, 0.64, 1.0),
+            child: art,
+          );
+    final transition = _transition;
+    if (transition == null) return result;
+    // The open/close animation flies a copy of this art; tell it what to show.
+    transition.updateArt(image: image, scale: scale);
+    return transition.wrapArt(result);
   }
 
   @override
@@ -338,6 +353,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
 
     _appAccent = Theme.of(context).colorScheme.primary;
     _glass = _readGlass(context);
+    _transition = NowPlayingTransition.maybeOf(context);
 
     final accentColor = _bgColors.isNotEmpty ? _bgColors.first : Colors.white;
     final isLandscape =
@@ -406,29 +422,19 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
       ],
     );
 
-    final Widget screen = Theme(
-      data: ThemeData.dark(),
-      child: Scaffold(
-        backgroundColor: Colors.black,
-        body: GestureDetector(
-          onVerticalDragUpdate: isLandscape ? null : _onVerticalDragUpdate,
-          onVerticalDragEnd: isLandscape ? null : _onVerticalDragEnd,
-          child: Stack(
-            children: [
-              Positioned.fill(
-                child: RepaintBoundary(
-                  child: _glass
-                      ? ArtworkBackdrop(
-                          image: _currentImageProvider ?? widget.image,
-                          brightness: _artworkBrightness(),
-                          child: pages,
-                        )
-                      : BlurredGradientBackground(
-                          colors: _bgColors,
-                          child: pages,
-                        ),
-                ),
-              ),
+    Widget backdrop(Widget child) => _glass
+        ? ArtworkBackdrop(
+            image: _currentImageProvider ?? widget.image,
+            brightness: _artworkBrightness(),
+            child: child,
+          )
+        : BlurredGradientBackground(
+            colors: _bgColors,
+            child: child,
+          );
+
+    // The drag handle and top bar, above the pages.
+    final List<Widget> chrome = [
               if (!isLandscape)
                 Positioned(
                   top: effectiveTopPadding > 0
@@ -501,9 +507,57 @@ class _NowPlayingScreenState extends State<NowPlayingScreen>
                         ],
                 ),
               ),
-            ],
-          ),
+    ];
+
+    final transition = _transition;
+    final Widget body;
+    if (transition == null) {
+      body = GestureDetector(
+        onVerticalDragUpdate: isLandscape ? null : _onVerticalDragUpdate,
+        onVerticalDragEnd: isLandscape ? null : _onVerticalDragEnd,
+        child: Stack(
+          children: [
+            Positioned.fill(
+              child: RepaintBoundary(child: backdrop(pages)),
+            ),
+            ...chrome,
+          ],
         ),
+      );
+    } else {
+      // Opened from the mini-player: the backdrop and content move as one
+      // sheet that compacts into the mini-player, with the content's glass
+      // kept intact, and a vertical drag drives the transition directly.
+      body = GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onVerticalDragStart: isLandscape ? null : transition.handleDragStart,
+        onVerticalDragUpdate: isLandscape ? null : transition.handleDragUpdate,
+        onVerticalDragEnd: isLandscape ? null : transition.handleDragEnd,
+        onVerticalDragCancel: isLandscape ? null : transition.handleDragCancel,
+        child: Stack(
+          children: [
+            Positioned.fill(
+              child: transition.wrapSheet(
+                backdrop: backdrop(const SizedBox.expand()),
+                content: Stack(
+                  children: [
+                    Positioned.fill(child: RepaintBoundary(child: pages)),
+                    ...chrome,
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    final Widget screen = Theme(
+      data: ThemeData.dark(),
+      child: Scaffold(
+        backgroundColor:
+            transition == null ? Colors.black : Colors.transparent,
+        body: body,
       ),
     );
 

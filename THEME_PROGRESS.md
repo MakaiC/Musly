@@ -1,6 +1,6 @@
 # Liquid Glass theme: progress & handoff
 
-Last updated 2026-11-02 (sliders, branch `slider-work`); previously 2026-11-03 · branch `claude/sleepy-gates-rm92oh` (continues `claude/brave-bohr-80alrl`) · Flutter **3.47.7** (pinned in CI)
+Last updated 2026-11-02 (now-playing open/close transition, branch `player-anim`); before that 2026-11-02 (sliders, branch `slider-work`); previously 2026-11-03 · branch `claude/sleepy-gates-rm92oh` (continues `claude/brave-bohr-80alrl`) · Flutter **3.47.7** (pinned in CI)
 
 ## Status at a glance
 
@@ -27,7 +27,7 @@ Audited from `lib/screens/**` and the sheets, dialogs and menus they open (2026-
 **Core chrome and player (the user's priority order)**
 - [x] Mini-player: `lib/widgets/navigation/mini_player.dart`
 - [~] Bottom nav / tab bar: `lib/widgets/navigation/glass_tab_bar.dart`, wired in `main_screen.dart`'s `_buildGlassBottomNav`. Built; the user marks it in progress.
-- [ ] Now-playing: `lib/screens/player/now_playing_screen.dart` + `lib/widgets/now_playing/*`. The user marks it not started; an unaccepted draft is in `5000ad8`.
+- [ ] Now-playing: `lib/screens/player/now_playing_screen.dart` + `lib/widgets/now_playing/*`. The user marks it not started; an unaccepted draft is in `5000ad8`. The open/close animation (branch `player-anim`, see "Now-playing open/close transition") was added on top at the user's request, without changing the layout or controls.
 - [ ] Library grid: the cards in `lib/widgets/cards/` (`album_card`, `artist_card`, `media_card`) and the grid in `lib/screens/main/library_screen.dart`
 - [ ] New tab: planned by the user, **not in the codebase**. `MainScreen` has 3 tabs (`_screens`: Home, Library, Search).
   - Adding one touches `_screens`, `_buildGlassBottomNav`, the classic `_buildBottomNav`, `DesktopNavigationSidebar` and an l10n label.
@@ -137,7 +137,7 @@ Restyle these components with an iOS 26/27 Liquid Glass look, in this order: min
 - Get **as close to Apple's Liquid Glass as possible.** The user is exacting about this: center almost perfectly clear, edges warping the content behind.
 - Keep theming intact (dark/light, accent, dynamic color). Glass sits on top of the theme.
 - **Do not touch:** auth/login, settings screens, the API/Subsonic client, state management, or platform build config. The only exception is a minimal unavoidable wiring change, and it must be **flagged first**. (The settings scroll-padding fix was explicitly approved.)
-- Don't touch playback logic, the app icon, the name or branding.
+- Don't touch playback logic, the app icon, the name or branding. **Exception (the user's request, 2026-11-02):** the app is now named **Navinix** and has a new icon; see "App name and icon". Further branding changes still need the user's go-ahead.
 - User preference: when offered a multiple choice, they answer with just the choice.
 
 ## How to see it
@@ -158,6 +158,8 @@ Restyle these components with an iOS 26/27 Liquid Glass look, in this order: min
 | `c48b696` | `GlassTabBar` (`lib/widgets/navigation/glass_tab_bar.dart`) + its widget tests; `_buildGlassBottomNav` uses it |
 | `5000ad8` | Now-playing glass: `GlassIconButton`, `ArtworkBackdrop`, `GlassStyle.control`, `GlassContainer.visibility`, glass branches in the now-playing screen and widgets, + tests |
 | *(branch `slider-work`)* | `ThickBarSlider`: thumb-less thick-bar scrubber and volume slider (both modes), + tests |
+| *(branch `player-anim`)* | App renamed **Navinix** (launcher name + app title) and new light/dark/tinted icons for iOS and Android, with the renderer in `tools/app_icon/` |
+| *(branch `player-anim`)* | Now-playing open/close transition: `NowPlayingRoute` / `NowPlayingTransition` / `NowPlayingFrame` / `NowPlayingArtAnchor` / `NowPlayingCapsuleAnchor`, `GlassPresence`, + tests. v3: close slides to the bottom, then merges up into the capsule as it reaches out |
 
 ## What's built
 
@@ -274,6 +276,100 @@ Glass mode only (`ThemeService.liquidGlass`, read in `build` into `_glass`). Cla
 - **Not restyled for glass specifically:** the lyrics and queue pages themselves, and the sheets this screen opens (••• menu, add-to-playlist).
 - **Tests:** `test/widgets/glass_icon_button_test.dart` (9) and `test/widgets/now_playing_glass_test.dart` (2). The second mounts the real screen in both modes: glass widget counts, the app accent on the heart, play/pause plus the artwork shrink, shuffle's on state, and classic unchanged.
 
+### Now-playing open/close transition (`lib/widgets/now_playing/now_playing_transition.dart`)
+
+**Version 3 (2026-11-02), merge loosened the same day.** After v3 the user asked for the merge to be "a little less stiff" ("I think we're golden"), then for "a little more loose". So the merge starts earlier (0.4), the springs are looser with more give on landing (close 110 / 0.72, swipe release 125 / 0.62), and the swallow swell is 5.5%. The user's feedback so far:
+- **v1:** they loved the art flight ("exactly what I was looking for"). It's kept for **opening**.
+- **v2:** the player compacted into the mini-player; "still pretty good".
+- **For v3 they asked for:**
+  - **more animation at the bottom, with the mini-player "reaching out" to the merge;**
+  - **the player to slide all the way to the bottom of the screen, then merge back up;**
+  - reference videos.
+- Still standing from v2: the **whole mini-player** is the target, **no fade while it slides**, and it must work with the **collapsed** mini-player.
+
+**References.** I couldn't find a video of the iOS 26/27 Music dismiss, and I can't watch video anyway. The closest documented behaviour is what v3 is modelled on:
+- iOS 26's mini-player is the tab bar's bottom accessory, and the full player is a zoom/morph from it, not a plain slide. Sources: WWDC25 session 323; developer.apple.com/forums/thread/809806; github.com/speech115/Petrichor/pull/11.
+- Liquid Glass's own merge: `GlassEffectContainer` shapes within its spacing "blend and morph together like water droplets" (Apple's `GlassEffectContainer` docs; dev.to/arshtechpro "Understanding GlassEffectContainer in iOS 26").
+- **Not verified against an iOS 26/27 device.**
+
+**The user's original spec (v1, still applies):** swipe-to-dismiss follows the finger, then settles with a weighted spring (a slight drop and a soft overshoot). One controller, so gestures can interrupt or reverse it. Smooth at 60/120Hz, reduce motion respected, layout and controls unchanged.
+
+**Applies in classic and glass mode** (no mode qualifier, as with the sliders). Only the mini-player path uses it. The desktop player bar and TV keep their routes. `NowPlayingScreen` mounted without a transition builds exactly the tree it did before. Also, v2's 80pt backdrop bleed is gone, so the open screen's backdrop is laid out exactly as before.
+
+- **Route:** the mini-player pushes `NowPlayingRoute`, a transparent `PageRoute` with zero-length transitions, on the root navigator. `NowPlayingTransition` does all the animating.
+- **One controller:** an `AnimationController.unbounded` holds the progress `p` (0 = merged into the mini-player, 1 = open).
+  - Every visual comes from a pure static function of `p` that returns a `NowPlayingFrame`. The frame holds the sheet or blob rect, the player's origin and scale, corner radius, sheet opacity, content opacity, glass presence, capsule reach and swell, the neck path, and the capsule cut-out.
+  - A drag writes `p` (the sheet's top edge follows the finger 1:1). A release seeds a `SpringSimulation` on `p` with the finger's velocity. It dismisses on more than 700 px/s down, or past 150pt unless the finger was moving back up. A drag can grab it mid-flight.
+- **Two paths on the one controller:**
+  - **Open (`openFrame`, the v2 geometry):** the art flies from the mini-player's art to its place (`artRect`, v1's flight). Meanwhile the sheet grows up out of the capsule: its top travels linearly, and its sides and bottom spread with `compaction` (1−(1−p)⁴). The capsule bulges as the player pushes out (`capsuleGulp`). The sheet fades in only over `p` < 0.12.
+  - **Close (`closeFrame`, new in v3):**
+    1. **Slide (`p` 1 → `kNowPlayingMergeStart` = 0.4):** the whole player, art included (no flying copy), stays opaque. Its top edge travels linearly to the **screen's bottom edge** (1:1 with the finger), revealing the app and the mini-player. Only the last ~50pt above the bottom edge fades its controls, with glass off from there. A finger can take it down to the edge; the merge is the release's job.
+    2. **Merge (`p` 0.4 → 0):**
+       - A blob of the player's material (its backdrop) rises from the bottom edge. It starts screen-wide and 1.5× capsule height, then narrows to the capsule.
+       - **The capsule reaches out:** it stretches down from its top edge by up to 18pt (`_kReach`), narrowing ~2% like a drop (`reachAmount`: ramps up as the blob appears, holds, lets go as they fuse).
+       - **A liquid neck** (`_neck`) joins the capsule's stretched bottom to the blob's top: two quadratic curves pinched at a waist. It forms within 110pt (`_kNeckSpacing`, like a `GlassEffectContainer` spacing), thin at first and thickening to a full join as the gap closes.
+       - **The capsule's shape is cut out of the blob** (`swallow`), so the blob disappears up into the capsule's bottom edge and never covers it.
+       - The capsule swells (`_kGulpSwell` 5.5%) as it swallows, and again on the soft overshoot past 0 (the landing wobble). It's settled at `p` = 0, where the route pops.
+       - The blob's own opacity eases out over the last 20% of the merge.
+  - The open path runs until the player first settles open; from then on it's the close path. Both paths are the full screen at `p` = 1, so the switch is invisible. A gesture keeps the current path's geometry.
+  - **Overshoot past open** (the release spring) swells the player very slightly instead of moving it, so no gap can open at the bottom.
+- **Drawing:** the screen hands its backdrop and content over together (`wrapSheet`). They're transformed (origin and scale), clipped by a `ClipPath` (sheet or blob ∪ neck − capsule), and faded together, with the controls faded separately by `_ContentFade`.
+  - While merging, the player's texture is anchored at the neck's top, so the neck has material to show.
+  - The widget structure never changes mid-animation, so the backdrop's state survives. The clip is `Clip.none` when settled.
+- **`NowPlayingCapsuleAnchor`** wraps the whole mini-player surface in `mini_player.dart`, at the outermost level of each branch.
+  - **Glass:** `inset` (12, 4, 12, 4), `capsule: true`. **Classic:** `capsule: false`, radius 0.
+  - It's measured live (box deflated by `inset`), so any mini-player layout is the target.
+  - Its static `gulp` (0..1) and `reach` (stretch as a fraction of its height) notifiers drive a `Transform` hung from its top centre.
+- **`NowPlayingArtAnchor`** wraps the mini-player's art: the source of the opening flight, hidden during it.
+- **Glass under a fade: `GlassPresence`** (in `glass_container.dart`). It's an inherited 0..1 factor multiplying every `GlassContainer`'s `visibility`. At 0 the container skips its backdrop filter entirely and paints only its child, so it's safe inside a fractional `Opacity`. Each frame's `glassPresence` is above 0 only when both the sheet and content opacities are 1 (tested over both paths).
+- **Closing paths:**
+  - Chevron (`_closeOrBack` on page 0) → `close()`.
+  - System back → `PopScope` → `close()`.
+  - The close spring is softer than the open (stiffness 110, ratio 0.72), so both halves read and the merge lands with some give (it wobbles on a button close too). The swipe-release spring is 125 / 0.62 for a loose overshoot.
+  - Direct `Navigator.pop`s (e.g. artist navigation) still pop at once.
+  - The screen hit-tests opaque, so a mid-flight tap can't push a second player.
+- **Reduce motion:** open and close jump. The drag still tracks the finger; the release jumps.
+- **60/120Hz:** springs are time-based. Per frame: the sheet's transform, path clip and opacities, the capsule's transform, and the small flying-art widget (on open). The content and backdrop are `RepaintBoundary`s, so they're composited, not repainted.
+- **Landscape:** open and close work; drag-to-dismiss stays off, as before.
+- **Tests:** `test/widgets/now_playing_transition_test.dart` (16).
+  - **Geometry:**
+    - Both paths are full-screen at 1.
+    - Open grows out of the capsule, with no fade above 0.12.
+    - Close slides opaque, top 1:1, down to the bottom edge at 0.4, with no reach or neck.
+    - The merge rises monotonically into the capsule.
+    - The capsule reaches more than 11pt, and the neck spans the stretched capsule to the blob.
+    - Glass only when fully opaque, on both paths.
+    - The swell is settled at the ends.
+    - The opening art is continuous.
+  - **Widgets:**
+    - The open flight starts on the hidden mini art and lands exactly on the real art.
+    - No `BackdropFilter` inside a fractional `Opacity`.
+    - Drag 1:1 with no fade, springing back with an overshoot.
+    - Swipe dismissal: opaque all the way down; slides past the mini-player before the neck forms; the capsule reaches and swallows; dips below 0; lands on the capsule; the notifiers reset; the mini art is never hidden and no flying copy appears.
+    - Catch-and-reverse, system back, reduce motion, and the glass chevron close.
+- **Visual check:** a temporary harness (deleted) filmed the glass close with the real `MiniPlayer` on Skia: 12 frames from open to closed.
+  - That showed v3's first cut painting the blob *over* the mini-player at the end. That's what the `swallow` cut-out fixes.
+  - The final film shows the slide to the bottom, the blob rising, the stretched capsule, the pinched neck, and the blob vanishing under the capsule's edge.
+
+#### Integration with collapsing chrome (`collapsed-nav` worktree, reviewed 2026-11-02)
+
+- **What it does:** a scroll-driven `_chromeCollapse` spring in `main_screen.dart` lerps the mini-player's rect from full (12,688–381,748) to a 52pt capsule between the corner buttons (72,766–321,818). It passes `MiniPlayer(collapse: miniT)`, which shrinks the capsule height and art (40→36, radius 10→9) and folds the other controls away.
+- **Why no glue is needed:** the transition **measures** the capsule and art anchors every tick, so it doesn't need to know about the collapse. The close merges into whichever capsule is on screen, and the open flies from whichever art size and radius is there.
+  - With the collapsed capsule (bottom at 818pt), the rising blob is within the neck spacing almost at once, so the neck forms earlier and stays shorter.
+  - (Checked against v2 in the trial merge below. v3 didn't change `mini_player.dart`, so the merge result is the same.)
+- **Trial merge (2026-11-02, scratch worktree, since deleted):** `collapsed-nav`'s uncommitted diff, then this branch's.
+  - **Code merges cleanly.** `mini_player.dart` auto-merges, because the anchors wrap the outermost widgets and the art call.
+  - **Only `THEME_PROGRESS.md` conflicts.** Both branches edit the "Last updated" line, the commits table, the verification list and the open-feedback list, and both resolved the same stale `<<<<<<< HEAD` block. Keep both sides' content.
+  - On the merge, all 112 widget tests pass and the analyzer is at the 16-info baseline.
+  - A temporary harness mounted the real glass `MiniPlayer(collapse: 1)` at the collapsed rect. Tapping it opened the player (art flew from the 36pt art); the chevron closed it, and the sheet landed on (71.8, 766)–(321.2, …), matching the collapsed capsule.
+- **Changes needed on the `collapsed-nav` side:** none required. Things to keep true when finishing it:
+  1. **Keep one `MiniPlayer` on screen at a time.** The last-built `NowPlayingCapsuleAnchor`/`NowPlayingArtAnchor` is the target. A cross-fade that builds two mini-players at once would need the anchors to pick the visible one.
+  2. **If the mini-player's outer `Padding` (12, 4, 12, 4) changes,** update the glass anchor's `inset` in `mini_player.dart` to match, or the sheet will compact into a slightly wrong rect.
+  3. **Don't collapse or expand the chrome while the player is open.** The scroll tracker can't see under the root route anyway; it's fine as is. If a later change does (e.g. on a tab change triggered from inside the player), the close still targets the live rect; it just lands on a moving target.
+  4. **The trailing tab buttons and the collapsed tab circle sit outside the capsule.** The rising blob starts screen-wide and passes over them before narrowing into the capsule. That's intended.
+  5. When merging `THEME_PROGRESS.md`, keep both "Collapsing chrome" and this section; the cross-references here assume both are present.
+  6. **Don't put another transform on the mini-player's surface inside `NowPlayingCapsuleAnchor`'s child expecting it to be at rest during the close.** The anchor scales it from its top centre (reach and swell), and the blob's cut-out assumes exactly that transform.
+
 ### Sliders: `ThickBarSlider` (`lib/widgets/common/thick_bar_slider.dart`)
 
 The user asked (2026-11-02) for both the scrubber and the volume slider to drop the track-plus-thumb look for a thick bar, with **one shared widget so they can't drift apart**.
@@ -292,6 +388,39 @@ The user asked (2026-11-02) for both the scrubber and the volume slider to drop 
   - The old scrubber didn't set its drag value on drag start, so a drag released without an update seeked to 0. It now starts from the finger.
 - **Tuning knobs:** the four `kThickBar*` constants at the top of the file.
 - **Tests:** `test/widgets/thick_bar_slider_test.dart` (6): idle thickness and no thumb, smooth grow/shrink on touch, reduce motion, tap callbacks, drag tracking and clamping, and the scrubber seeking on release/tap but not mid-drag.
+
+### App name and icon (branch `player-anim`, 2026-11-02)
+
+The user asked to rename the app **Navinix** and to give it a new icon, with separate light- and dark-mode versions. Their references were two JPGs from their Downloads (`app logo.jpg` light, `app image 2.jpg` dark). Both are Apple's iOS 26 Apple Music icon art: a glass tile with a beamed note and chromatic rim streaks.
+- **Copyright:** the user was told, and said they aren't worried because this is mostly for themselves.
+- **Their choice:** an icon drawn from scratch, "as close as you can get" to the references, at full resolution. The JPGs are ~300px tiles, too small to use directly.
+
+**The icon** is painted with `dart:ui` by `tools/app_icon/render_app_icon_test.dart`. Run it with `flutter test tools/app_icon/render_app_icon_test.dart`; it writes to `assets/app_icon/render/`. The installed sources are in `assets/app_icon/`. They're not listed in pubspec assets, so they aren't bundled into the app.
+- **What it draws:**
+  - A continuous-corner glass tile, 72% of the icon, with a soft bevel, a top-left sheen and a hairline edge.
+  - Two chromatic streaks hugging the rim: the top edge round the top-right corner, and the bottom-left corner. Each is layered blurred colour bands plus a bright core, fading at the ends.
+  - A beamed eighth-note pair with a red/blue chromatic fringe, and a blue glow where the left note head meets the bottom-left streak.
+- **Light:** light-grey ground, frosted white tile, black note. **Dark:** black ground, near-black blue glass, white note, warmer streaks. **Tinted:** the dark icon in greyscale (iOS tints it).
+- **iOS** (`ios/Runner/Assets.xcassets/AppIcon.appiconset`): the catalog already had universal light, dark and tinted 1024 slots. `Icon-Light-1024`, `Icon-Dark-1024` and `Icon-Tinted-1024` were replaced, and every legacy `Icon-App-*` size was regenerated from the light icon with `sips`. All are **opaque** (no alpha channel; converted via a max-quality JPEG round trip), as the App Store requires. `Contents.json` is unchanged.
+- **Android:**
+  - `drawable-*dpi/ic_launcher_foreground.png` is the tile and note on transparent, light version. The adaptive XML still insets it 16%, which keeps the tile's rounded corners inside a circular mask.
+  - `drawable-night-*dpi/` holds the dark foreground.
+  - `ic_launcher_background` is `#ECECEE` (`values/colors.xml`) and `#000000` in the new `values-night/colors.xml`.
+  - Legacy `mipmap-*dpi/ic_launcher.png` comes from the light icon.
+  - **Themed icon (Android 13+):** a new `drawable-*dpi/ic_launcher_monochrome.png` (the note alone). Both `mipmap-anydpi-v26` XMLs now use it for `<monochrome>`; it used to be the full foreground, which would have themed as a blob.
+  - **Dark mode on Android:** launchers don't officially switch app icons with the system theme. The night resources apply only where a launcher re-reads them; elsewhere you get the light icon. The user was told.
+- **Not changed:** the macOS, Windows, Linux and web icons (the user builds for iPhone). `flutter_launcher_icons.yaml` still points at the old `Musly Icon.png`. **Don't run `flutter_launcher_icons`**: it would overwrite these icons on iOS and Android. Update its `image_path`s first if it's ever needed for the desktop or web icons.
+
+**The name (launcher and system only):**
+- iOS `CFBundleDisplayName` and `CFBundleName` → `Navinix` (`Info.plist` is CRLF; it was edited byte for byte).
+- Android `android:label` → `Navinix`.
+- `MaterialApp.title` → `Navinix` (the task switcher).
+- **Unchanged:**
+  - The bundle and package IDs (`com.musly.musly`). Changing them makes it a different app for installs, updates and store listings.
+  - The Dart package name, class names (`MuslyApp`, `MuslyAudioHandler`) and the Subsonic client name sent to servers.
+  - The desktop and web titles.
+  - About 50 in-app "Musly" strings in the l10n `.arb` files (20+ languages): feature names like "Musly Connect" and "Musly Playback", the developer's support text, the onboarding wordmark, and settings screens (off-limits under the ground rules). Ask before renaming those.
+- **Checked:** analyzer at the 16-info baseline, all 101 widget tests pass, and the iOS PNGs have no alpha. **Not checked:** an Android build (no Android SDK on the user's Mac, so `flutter build apk` stops before compiling resources), an Xcode build, or the icons on a device.
 
 ### Floating chrome layout (`lib/screens/main/main_screen.dart`)
 
@@ -335,6 +464,7 @@ Builds with the iOS 27 SDK crash on launch without it (`UIApplicationEvaluateRun
 - **Tests:** all widget tests pass. Seven live-network/platform tests (`lrclib_service`, `playlist_import_service`, `update_service` "targetAsset") fail in the container on the untouched base too. The analyzer shows the **16 pre-existing infos (the baseline), no new ones.**
 - **Now-playing (2026-11-03):** rendered glass and classic, portrait and landscape, with a dark sunset cover and a near-white one. Classic is byte-identical to the old code. All 38 chrome renders (mini-player plus tab bar at rest, mid-tap and mid-drag, dark and light) are byte-identical to before the `GlassContainer.visibility` change.
 - **Sliders (2026-11-02, macOS, `flutter test`):** the 6 new `ThickBarSlider` tests and all 84 widget tests pass, including `now_playing_glass_test` (which mounts the real screen in both modes). Analyzer at the 16-info baseline. No renders or device check yet.
+- **Now-playing transition v3 (2026-11-02, macOS, `flutter test`, Skia):** the 16 transition tests and all 101 widget tests pass; the analyzer is at the 16-info baseline. The glass close was filmed frame by frame (see the section). The trial merge with `collapsed-nav` passes 112 widget tests, plus the collapsed-capsule harness (see "Integration with collapsing chrome"). No renders, films or device check yet. The glass-under-fade guarantee was checked on the blur fallback's `BackdropFilter`; the shader path uses the same switch (`presence <= 0` skips both).
 - **Not verified:** a real device, Metal (iOS), the GLES fallback on older Android, on-device performance, and an Xcode compile of the UIScene changes.
 
 ## Open feedback and issues
@@ -344,12 +474,14 @@ Builds with the iOS 27 SDK crash on launch without it (`UIApplicationEvaluateRun
   - **Center clarity vs. legibility over bright art:** `adaptiveTint`, the tint opacities, `frost`.
   - **Scroll smoothness.** Each is a single `GlassStyle` field.
 - **Now-playing:** waiting on the user's review (they got before/after renders). Likely knobs: the backdrop blur/saturation/drift (`_BlurredArtwork`), the scrim curve (`ArtworkBackdrop`), the pause shrink (`_buildArtwork`), button sizes, and `GlassStyle.control`.
-<<<<<<< HEAD
-- **Tab bar:** tuning knobs if the user asks (they got GIFs of the tap slide and drag). Likely tuning knobs: tap slide duration/curve (`_slideTo`, `_kSlideCurve`), snap spring (`_kSnapSpring`), lift size (`_kLiftScale`), bubble fill (`_BubblePainter`), and the highlight fade (`_highlight`).
 - **Sliders:** waiting on the user's look on device. Knobs: idle/active thickness, hit height, resize duration (`kThickBar*`). **Classic mode changed too**: the user's request covered both sliders without a mode qualifier, unlike the "classic stays unchanged" rule for glass work. If they want classic back, gate on `VolumeSlider.glass` and add a `glass` flag to `PlaybackProgressSlider`.
-=======
 - **Tab bar:** tuning knobs if the user asks (they got GIFs of the tap slide and drag). Likely tuning knobs: tap slide duration/curve (`_slideTo`, `_kSlideCurve`), snap spring (`_kSnapSpring`), lift size (`_kLiftScale`), bubble fill (`_BubblePainter`), and the lens falloff (`_proximity`). Colour comes only from the bubble mask; don't reintroduce per-tab colour fades or snaps.
->>>>>>> navbar-work
+- **Now-playing open/close transition (v3):** the user called it "golden" after the merge was loosened. Still waiting on their look on device. The art flight on open was approved in v1. v3's close (slide to the bottom, then the liquid merge with the capsule reaching out) answers their v2 feedback. Knobs, at the top of `now_playing_transition.dart` or in its geometry functions:
+  - Springs: `_kOpenSpring` (230 / 0.88), `_kCloseSpring` (110 / 0.72), `_kSettleSpring` (125 / 0.62; lower the ratio for more wobble on landing). History: 150 / 0.9 and 170 / 0.74 at first, then 130 / 0.8 and 150 / 0.68 after "less stiff", then these after "a little more loose".
+  - Dismissal: `_kDismissVelocity` (700 px/s), `_kDismissDistance` (150pt).
+  - The merge: where it starts (`kNowPlayingMergeStart`, 0.4; was 0.3), how far the capsule reaches (`_kReach`, 18pt) and when (`reachAmount`), when the neck forms (`_kNeckSpacing`, 110pt) and its shape (`_neck`), the swell (`_kGulpSwell`, 5.5%; was 4%), and the blob's size and path in `closeFrame`.
+  - Open: `compaction`, `sheetOpacity`, `artRect`.
+  - Not done: the neck and blob use the player's backdrop material, not real glass. A glass neck would need a shape-aware shader mode, the same follow-up as the tab bar's lens bubble.
 - **Legibility over near-white art in dark mode:** with the centre this clear (adaptive tint 0.15), white text over a near-white cover is hard to read. The user was told. Options: raise `adaptiveTint`, or adaptive foreground (glyphs flip dark over bright content, as iOS does), which is a bigger feature.
 - **Dialogs on the inner navigator:** the chrome stays above the dim barrier, as in classic mode. iOS also dims the tab bar. Possible follow-up.
 - **Light mode:** the adaptive tint lifts near-black content behind the glass toward gray. This is by design for legibility, and tunable.
@@ -416,7 +548,7 @@ Builds with the iOS 27 SDK crash on launch without it (`UIApplicationEvaluateRun
   - The key's id is private, so the setter is the only way to set it.
 - **Uniform copies:** uniforms are **copied when the filter is created**, so one `FragmentShader` per surface can be mutated every frame.
 - **BackdropGroup trade-off:** grouped surfaces share one snapshot, so they can't see or refract each other (the 2pt sliver).
-- **Fractional `Opacity` breaks glass.** An `Opacity`/`FadeTransition` below 1 renders its subtree into an offscreen layer whose render target isn't the screen. The shader's `FlutterFragCoord`/`u_size` are then relative to that layer, so the glass samples the wrong part of the backdrop (seen as an opaque salmon disc in the first now-playing render). Fade glass with `GlassContainer.visibility`. Route transitions that fade (e.g. Android's zoom transition) will show this briefly on glass inside them.
+- **Fractional `Opacity` breaks glass.** An `Opacity`/`FadeTransition` below 1 renders its subtree into an offscreen layer whose render target isn't the screen. The shader's `FlutterFragCoord`/`u_size` are then relative to that layer, so the glass samples the wrong part of the backdrop (seen as an opaque salmon disc in the first now-playing render). Fade glass with `GlassContainer.visibility`. To fade a whole subtree that contains glass, wrap it in `GlassPresence` and keep the presence at 0 while the fade is fractional (as `NowPlayingTransition` does). Route transitions that fade (e.g. Android's zoom transition) will show this briefly on glass inside them.
 
 ### Layout
 - **Inner navigator inset:**
