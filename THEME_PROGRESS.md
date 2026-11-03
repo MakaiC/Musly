@@ -9,11 +9,124 @@ Last updated 2026-11-03 · branch `claude/sleepy-gates-rm92oh` (continues `claud
 | 1. Mini-player | ✅ Built, plus a polish pass after the user's first look: proportions, clearer centre, frosted rim, stronger refraction. The user approved it from renders and asked to move on. |
 | Floating-chrome layout + page scroll padding | ✅ Built (groundwork for steps 1 and 2) |
 | iOS UIScene lifecycle migration | ✅ Done. **Not yet compiled in Xcode**; the first build is the check |
-| 2. Bottom navigation bar | ✅ Built: `GlassTabBar` with a drag-to-move / tap-to-slide selection bubble. The user approved it from GIFs and asked to move on. |
-| 3. Now-playing full-screen view | ✅ Built: blurred-artwork backdrop, `GlassIconButton` controls, glass lyric pill, artwork shrinks while paused. **Waiting on the user's review.** |
-| 4. Library grid (album/artist cards) | ⏭ Next, once the user signs off on now-playing |
+| 2. Bottom navigation bar | 🔶 **In progress (the user's call, 2026-11-03).** `GlassTabBar` is built and committed (`c48b696`); the open work isn't written down yet. Ask the user. The iPhone Duo side placement below is likely part of it. |
+| 3. Now-playing full-screen view | ⬜ **Not started (the user's call, 2026-11-03).** A first glass pass *is* committed (`5000ad8`) and was shown as renders, but the user hasn't accepted it. **Ask whether to iterate on it or redo it** before touching that code. |
+| 4. Library grid (album/artist cards) | ⬜ Not started |
+| 5. New tab | ⬜ Not started (doesn't exist in the codebase yet; see the checklist) |
 
-Nothing has run on a real device yet. The user's next step is building to their iPhone.
+**Statuses are the user's.** Where the branch has more code than the status suggests, the status wins: treat that code as an unaccepted draft.
+
+The user has been building to their iPhone; see the iPhone Duo box below.
+
+## Liquid Glass checklist: every screen and menu
+
+Audited from `lib/screens/**` and the sheets, dialogs and menus they open (2026-11-03).
+- `[x]` done, `[~]` in progress or a draft exists, `[ ]` not started, 🚫 out of scope under the current ground rules (needs the user's OK).
+- "Glass" means the glass-mode branch only; classic must stay unchanged.
+
+**Core chrome and player (the user's priority order)**
+- [x] Mini-player: `lib/widgets/navigation/mini_player.dart`
+- [~] Bottom nav / tab bar: `lib/widgets/navigation/glass_tab_bar.dart`, wired in `main_screen.dart`'s `_buildGlassBottomNav`. Built; the user marks it in progress.
+- [ ] Now-playing: `lib/screens/player/now_playing_screen.dart` + `lib/widgets/now_playing/*`. The user marks it not started; an unaccepted draft is in `5000ad8`.
+- [ ] Library grid: the cards in `lib/widgets/cards/` (`album_card`, `artist_card`, `media_card`) and the grid in `lib/screens/main/library_screen.dart`
+- [ ] New tab: planned by the user, **not in the codebase**. `MainScreen` has 3 tabs (`_screens`: Home, Library, Search).
+  - Adding one touches `_screens`, `_buildGlassBottomNav`, the classic `_buildBottomNav`, `DesktopNavigationSidebar` and an l10n label.
+  - Watch out: the **Search easter egg is hard-coded to index 2** (`_onGlassTabSelected` and `_buildBottomNav`). Inserting a tab before Search moves it.
+
+**Main tabs (pages under the chrome)**
+- [ ] Home: `lib/screens/main/home_screen.dart`, with `quick_access_tile`, `media_card` and the favourite-playlists row (`widgets/navigation/favorite_playlists_section.dart`)
+- [ ] Library page chrome: header, filters, `lib/screens/main/library_screen.dart` (separate from the grid cards above)
+- [ ] Search: `lib/screens/main/search_screen.dart`, with `top_result_card` and `browse_category_card`
+- [ ] Library search (`showSearch`): `lib/screens/main/library_search_delegate.dart`
+
+**Detail pages**
+- [ ] Album: `lib/screens/detail/album_screen.dart` (+ its ⋯ popup menu and a confirm dialog)
+- [ ] Artist: `lib/screens/detail/artist_screen.dart`
+- [ ] Genre: `lib/screens/detail/genre_screen.dart`
+- [ ] Playlist: `lib/screens/detail/playlist_screen.dart` (+ its ⋯ popup menu and 2 dialogs)
+
+**Media pages (from Library/Home)**
+- [ ] Album collection: `lib/screens/media/album_collection_screen.dart` (incl. its A–Z index bar)
+- [ ] Song collection: `lib/screens/media/song_collection_screen.dart` (+ sort popup menu)
+- [ ] Playlists: `lib/screens/media/playlists_screen.dart` (+ dialog)
+- [ ] Favorites: `lib/screens/media/favorites_screen.dart` (uses `PillTabBar`; + dialog)
+- [ ] Downloads: `lib/screens/media/downloads_screen.dart` (uses `PillTabBar`)
+- [ ] Download playlist status: `lib/screens/media/download_playlist_status_screen.dart`
+- [ ] Genres: `lib/screens/media/genres_screen.dart`
+- [ ] Radio: `lib/screens/media/radio_screen.dart` (+ station options sheet)
+- [ ] Jukebox: `lib/screens/media/jukebox_screen.dart`
+- [ ] `PillTabBar` (`lib/widgets/common/pill_tab_bar.dart`): a natural candidate for the `GlassTabBar` bubble treatment
+- [ ] Wrapped: `lib/screens/wrapped/wrapped_screen.dart`
+- [ ] Fantasy (Search easter egg): `lib/screens/media/fantasy_screen.dart`
+
+**Now-playing sub-pages and its menus** (they ride on the now-playing work)
+- [ ] Lyrics page: `lib/screens/player/lyrics_screen.dart` + `lib/widgets/lyrics/*`
+- [ ] Queue page: `lib/widgets/now_playing/queue_view.dart`
+- [ ] ⋯ more menu sheet: `lib/widgets/now_playing/now_playing_more_menu.dart`
+- [ ] Add-to menu and the playlist picker sheet: `lib/widgets/now_playing/add_to_menu.dart`
+- [ ] Progress and volume sliders: `lib/widgets/now_playing/playback_progress_slider.dart`, `volume_slider.dart` (the draft only swapped the speaker glyphs)
+
+**Sheets and menus (app-wide)**
+- [ ] Song options (long-press a song): `lib/widgets/modals/song_options_modal.dart`
+- [ ] Playlist options: `lib/widgets/modals/playlist_options_modal.dart`
+- [ ] Server switcher: `lib/widgets/modals/server_switcher_sheet.dart`
+- [ ] Connect devices / cast picker: `lib/screens/connect/connect_devices_modal.dart` (+ its dialog) and `lib/widgets/navigation/cast_button.dart` (2 dialogs)
+- [ ] Multi-artist picker: `ArtistsBottomSheet` in `lib/widgets/common/multi_artist_widget.dart`
+- [ ] Library add menu and sort menu sheets (`_showAddMenu`, `_showSortMenu` in `library_screen.dart`, + a dialog)
+- [ ] Switch-profile sheet in `lib/main.dart` (`_showSwitchProfileDialog`)
+- Note: sheets on the inner navigator already make the floating chrome slide away (`_SheetOnTopObserver`).
+- A glass sheet would want `GlassStyle.frosted` (text-dense).
+- Don't fade glass with `Opacity` (see the gotchas).
+
+**Dialogs**
+- [ ] Import playlist: `lib/widgets/dialogs/import_playlist_dialog.dart`
+- [ ] Milestone celebration: `lib/widgets/dialogs/milestone_celebration_dialog.dart`
+- [ ] Privacy policy: `lib/widgets/dialogs/privacy_policy_dialog.dart` (shown from `main.dart`)
+- [ ] Support: `lib/widgets/dialogs/support_dialog.dart` (also from `usage_time_service.dart`)
+- [ ] Update: `lib/widgets/dialogs/update_dialog.dart`
+- [ ] Inline `AlertDialog`s in the album, playlist, playlists, favorites and library screens (confirmations, create playlist)
+
+**Settings**: 🚫 the ground rules say don't touch settings screens; only the scroll-padding fix was approved
+- 🚫 Settings shell: `lib/screens/settings/settings_screen.dart`
+- 🚫 Tabs: `settings_display_tab`, `settings_playback_tab`, `settings_server_tab`, `settings_storage_tab`, `settings_android_auto_tab`, `settings_about_tab`, `settings_support_tab` (all in `lib/screens/settings/`)
+- 🚫 Their sheets and dialogs: display (language picker sheet + dialog), server (2 dialogs), storage (4 dialogs), about (2 dialogs)
+- 🚫 Shared settings widgets: `lib/widgets/settings/*`
+
+**Auth and onboarding**: 🚫 the ground rules say don't touch auth/login
+- 🚫 Login: `lib/screens/auth/login_screen.dart`
+- 🚫 Add server: `lib/screens/auth/add_server_screen.dart`
+- 🚫 Onboarding: `lib/screens/onboarding/onboarding_screen.dart` (not auth strictly, but part of first run; confirm with the user)
+
+**Other layouts**: not in scope so far (glass is phone-layout only)
+- Tablet/desktop (`_isLargeScreen`): `desktop_navigation_sidebar`, `desktop_player_bar`, `right_sidebar` and `desktop_lyrics_panel` in `lib/widgets/navigation/`. **Possibly relevant to iPhone Duo**; see below.
+- TV: `lib/screens/main/tv_main_screen.dart`, `lib/screens/player/tv_now_playing_screen.dart`, `lib/widgets/navigation/tv_navigation_sidebar.dart`.
+
+## iPhone Duo support
+
+> **Status: 🔴 Not supported yet. Open design question.**
+>
+> **What the user sees (2026-11-03):** the layout looks off-centre on iPhone Duo.
+>
+> **Decided (minimum):** the nav bar has to move **to the side** on iPhone Duo.
+>
+> **Undecided:** where the mini-player goes, and how the other planned glass work (now-playing, library grid, New tab) should adapt.
+>
+> **Unknown:** the device's logical screen size in each posture. Get `MediaQuery.sizeOf(context)` (and the safe-area padding) on device first; it decides which layout branch the app takes.
+>
+> **Relevant code facts (no changes made):**
+> - `MainScreen._isLargeScreen` (`lib/screens/main/main_screen.dart`) is `width >= 650 || shortestSide >= 600`.
+>   - **Below that:** the phone layout, with the floating glass chrome (mini-player + `GlassTabBar`, full width minus 12pt margins).
+>   - **At or above it:** the large-screen layout, with `DesktopNavigationSidebar` + `DesktopPlayerBar`, no glass and no mini-player.
+>   - So a size just under the breakpoint stretches the phone chrome across a wide screen. That's a plausible cause of the off-centre look; unverified.
+> - `ScreenHelper.isDesktop` is `width >= 800`; the mini-player hides only on desktop OSes at that width.
+> - Glass currently applies **only** to the phone layout.
+>
+> **Options to discuss with the user** (none chosen):
+> - **(a)** A dedicated "wide phone" layout for iPhone Duo: a glass side rail (`GlassTabBar` would need a vertical orientation) plus the mini-player docked bottom-leading or at the foot of the rail.
+> - **(b)** Route iPhone Duo to the large-screen layout and bring glass to the desktop sidebar/player bar.
+> - **(c)** Keep the bottom chrome but cap its width and pin it to one side.
+>
+> Whatever's chosen, `MainScreen.floatingChromeOverlap`/`scrollEndPadding` assume the chrome sits at the **bottom**. A side rail needs a leading/trailing inset for pages instead.
 
 ## Scope and ground rules (from the user)
 
@@ -225,6 +338,8 @@ Builds with the iOS 27 SDK crash on launch without it (`UIApplicationEvaluateRun
 - **CarPlay** is still disabled (`#if false`, pending Apple's entitlement).
 
 ## Next in scope
+
+**Before anything else:** reconcile the statuses above with the user (tab bar "in progress", now-playing "not started" despite the draft), and settle the iPhone Duo direction.
 
 **Step 4: library grid**
 - Lives in `lib/widgets/cards/` (`album_card.dart`, `artist_card.dart`, `media_card.dart`) and the grid in `library_screen.dart`.
