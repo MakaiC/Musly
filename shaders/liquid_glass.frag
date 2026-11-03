@@ -9,6 +9,9 @@
 // frost and tint thicken toward the rim, so the glass reads as clear in the
 // middle and frosted at its edges.
 //
+// While the glass moves, the bevel's content also lags behind the motion
+// (u_drag), so it clings to the rim like a liquid and snaps back on stopping.
+//
 // Coordinates: as a BackdropFilter, FlutterFragCoord() is in render-target
 // pixels (top-left origin on every backend) and the input texture is the
 // whole backdrop, so u_rect must be the glass bounds in that same space.
@@ -29,6 +32,8 @@ uniform float u_adaptive;     // Extra tint where content would fight legibility
 uniform vec4 u_edge;          // Rim frost radius (px), rim veil opacity,
                               // width of the frosted band (px), how far the
                               // veil is lifted toward white (0..1).
+uniform vec2 u_drag;          // Rim drag (px): how far the bevel's content
+                              // lags behind the glass's motion. Zero at rest.
 
 uniform sampler2D u_texture;  // Set by the engine: the backdrop.
 
@@ -106,6 +111,17 @@ void main() {
 
   vec2 n = outwardNormal(q, halfSize, u_shape.w);
   vec2 offset = n * refraction * lens;
+
+  // Rim drag: while the glass moves, the bevel's content lags behind it, on
+  // the edges facing the motion. At the trailing edge that keeps what the
+  // glass just passed stuck to the rim; at the leading edge it pulls the
+  // content just inside out toward the edge. Eases in across the bevel, so
+  // the centre never moves.
+  float dragLen = length(u_drag);
+  if (dragLen > 0.01) {
+    float facingMotion = abs(dot(n, u_drag / dragLen));
+    offset -= u_drag * (k * k * (3.0 - 2.0 * k)) * facingMotion;
+  }
 
   // Frosted band: 1 at the rim, easing to 0 a band-width in, where the glass
   // is clear.

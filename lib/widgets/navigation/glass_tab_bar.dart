@@ -164,12 +164,14 @@ const double _kJellyMax = 0.32;
 /// Tap slide: gets going straight away, then decelerates gently into place.
 const Curve _kSlideCurve = Cubic(0.3, 0.0, 0.1, 1.0);
 
-/// Release snap: lightly underdamped, so the bubble settles with a hint of
-/// overshoot, like a liquid drop.
+/// Release snap: softer and a little more underdamped than a snap, so the
+/// bubble glides into place and settles with a gentle overshoot, like a
+/// liquid drop. (Was stiffness 520 / ratio 0.78; the user found the release
+/// too snappy.)
 final SpringDescription _kSnapSpring = SpringDescription.withDampingRatio(
   mass: 1,
-  stiffness: 520,
-  ratio: 0.78,
+  stiffness: 300,
+  ratio: 0.7,
 );
 
 class _GlassTabBarState extends State<GlassTabBar>
@@ -233,7 +235,8 @@ class _GlassTabBarState extends State<GlassTabBar>
     _lift = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 180),
-      reverseDuration: const Duration(milliseconds: 260),
+      // Settling back down after a hold or drag: unhurried.
+      reverseDuration: const Duration(milliseconds: 420),
     );
     _catchUp = AnimationController(
       vsync: this,
@@ -931,12 +934,20 @@ class _BubblePainter extends CustomPainter {
     final shape = RRect.fromRectAndRadius(rect, r);
 
     if (lift > 0) {
+      // Only outside the pill: under a see-through bubble a shadow inside
+      // would darken the tabs it's over.
+      canvas.save();
+      canvas.clipPath(Path()
+        ..fillType = PathFillType.evenOdd
+        ..addRect(rect.inflate(24))
+        ..addRRect(shape));
       canvas.drawRRect(
         shape.shift(const Offset(0, 2)),
         Paint()
           ..color = Colors.black.withValues(alpha: (isDark ? 0.30 : 0.12) * lift)
           ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 8),
       );
+      canvas.restore();
     }
 
     final fill = isDark
