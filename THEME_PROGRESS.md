@@ -1,6 +1,6 @@
 # Liquid Glass theme: progress & handoff
 
-Last updated 2026-11-04 (companion made server-agnostic: Jellyfin rescan, no path in the systemd unit); before that 2026-11-04 (Add tab, stop 2 of 2: the `companion/` service and the real client, branch `add-music`); before that 2026-11-04 (Add tab, stop 1: five-tab wiring + the screen shell on a mock service); before that 2026-11-02 (now-playing open/close transition + Navinix rename and icons, branch `player-anim`, merged into `master`); before that 2026-11-02 (collapsing bottom chrome, branch `collapsed-nav`, merged with the New tab); 2026-11-02 (New tab, branch `new-tab`); 2026-11-02 (sliders, branch `slider-work`); 2026-11-03 · branch `claude/sleepy-gates-rm92oh` (continues `claude/brave-bohr-80alrl`) · Flutter **3.47.7** (pinned in CI)
+Last updated 2026-11-04 (companion deployed to the user's Debian 13 server at 192.168.1.158, service `navinix-companion` on port 8787); before that 2026-11-04 (companion made server-agnostic: Jellyfin rescan, no path in the systemd unit); before that 2026-11-04 (Add tab, stop 2 of 2: the `companion/` service and the real client, branch `add-music`); before that 2026-11-04 (Add tab, stop 1: five-tab wiring + the screen shell on a mock service); before that 2026-11-02 (now-playing open/close transition + Navinix rename and icons, branch `player-anim`, merged into `master`); before that 2026-11-02 (collapsing bottom chrome, branch `collapsed-nav`, merged with the New tab); 2026-11-02 (New tab, branch `new-tab`); 2026-11-02 (sliders, branch `slider-work`); 2026-11-03 · branch `claude/sleepy-gates-rm92oh` (continues `claude/brave-bohr-80alrl`) · Flutter **3.47.7** (pinned in CI)
 
 ## Standing rule for all agents
 
@@ -557,7 +557,9 @@ The user asked (2026-11-02) for a New tab loosely modelled on Apple Music's, usi
 
 **Run it:** `cd companion && python3 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt && .venv/bin/python -m pytest`. Deploy steps: the README.
 
-**Not verified:** the service against real yt-dlp, ffmpeg, Deno, YouTube or Navidrome (none are installed on the dev Mac; everything was mocked or stubbed), the systemd unit and file permissions on the server, and the app talking to it from the iPhone (plain-http LAN works per `Info.plist`, as noted earlier). Real yt-dlp's stderr wording drives the error messages (`ytdl.explain_failure`); expect to tune it.
+**Deployed (2026-11-04, by an agent over SSH, with the user's go-ahead):** Debian 13 at `192.168.1.158`, systemd unit `navinix-companion` (user `navinix`, home `/opt/navinix-companion`, yt-dlp 2026.10.26 via pipx in `/opt/navinix-companion/bin`, Deno 2.9.8 in `/usr/local/bin`, env file `/etc/navinix-companion.env`, port 8787). `MUSIC_DIR=/opt/navidrome/music`, made writable by adding `navinix` to the `navidrome` group and `chmod g+ws` on that one folder (non-recursive). `LIBRARY_BACKEND=none`: the user skipped the rescan login, so adds show a "wasn't rescanned" warning. **Open issue: Navidrome's `MusicFolder` in `/etc/navidrome/navidrome.toml` is `/mnt/media/Music`, not `/opt/navidrome/music`. The user chose the `/opt` folder anyway; files saved there only appear in the app if Navidrome is pointed at it.** `/health`, auth (401), playlist refusal, and `/validate` against a real YouTube video (thumbnail, parsing, durations) were checked from the Mac over the LAN. **No real download has been run yet.**
+
+**Not verified:** a real download (yt-dlp → ffmpeg → tags → file), Navidrome/Jellyfin rescans, and the app talking to it from the iPhone (plain-http LAN works per `Info.plist`, as noted earlier). Real yt-dlp's stderr wording drives the error messages (`ytdl.explain_failure`); expect to tune it.
 
 ### App name and icon (branch `player-anim`, 2026-11-02)
 
