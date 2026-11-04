@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -319,6 +321,44 @@ void main() {
       expect(thumb.contains(tester.getCenter(pill)), isTrue);
       expect(find.byType(GlassContainer), findsOneWidget);
       expect(find.byType(Opacity), findsNothing);
+
+      // The label is centred in the pill, both ways.
+      // A label stretched to the pill's full 44pt height draws its glyphs at
+      // the top of that box, so its box must be text-sized, not pill-sized.
+      final label = tester.getRect(find.text('Add to library'));
+      final pillCentre = tester.getCenter(pill);
+      expect(label.height, lessThan(30));
+      expect(label.center.dx, closeTo(pillCentre.dx, 0.5));
+      expect(label.center.dy, closeTo(pillCentre.dy, 0.5));
+    });
+
+    testWidgets('the glass pill\'s spinner is a circle, centred',
+        (tester) async {
+      tester.view.physicalSize = const Size(393 * 3, 852 * 3);
+      tester.view.devicePixelRatio = 3;
+      addTearDown(tester.view.reset);
+      final hold = Completer<void>();
+      await _pump(
+        tester,
+        store: await _configured(),
+        glass: true,
+        factory: (_, __) => _Slow(hold.future),
+      );
+      await _check(tester, _link);
+      await tester.tap(find.byKey(const Key('add-confirm')));
+      await tester.pump(const Duration(milliseconds: 50));
+
+      final spinner = find.descendant(
+          of: find.byKey(const Key('add-confirm')),
+          matching: find.byType(CircularProgressIndicator));
+      final size = tester.getSize(spinner);
+      expect(size.width, size.height, reason: 'a circle, not an oval');
+      final c = tester.getCenter(spinner);
+      final pill = tester.getCenter(find.byKey(const Key('add-confirm')));
+      expect(c.dx, closeTo(pill.dx, 0.5));
+      expect(c.dy, closeTo(pill.dy, 0.5));
+      hold.complete();
+      await tester.pump(const Duration(milliseconds: 50));
     });
 
     testWidgets('classic mode uses a themed filled button', (tester) async {
@@ -361,6 +401,27 @@ class _Failing implements CompanionApi {
   @override
   Future<String> startDownload(String url, {bool force = false}) =>
       _ok.startDownload(url, force: force);
+  @override
+  Future<DownloadJob> job(String id) => _ok.job(id);
+}
+
+/// Validates at once but holds the download start until [gate] completes.
+class _Slow implements CompanionApi {
+  _Slow(this.gate);
+
+  final Future<void> gate;
+  final _ok = MockCompanionService(step: Duration.zero, clientToken: 'demo');
+
+  @override
+  Future<CompanionHealth> health() => _ok.health();
+  @override
+  Future<VideoPreview> validate(String url) => _ok.validate(url);
+  @override
+  Future<String> startDownload(String url, {bool force = false}) async {
+    await gate;
+    return _ok.startDownload(url, force: force);
+  }
+
   @override
   Future<DownloadJob> job(String id) => _ok.job(id);
 }

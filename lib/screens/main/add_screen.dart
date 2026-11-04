@@ -542,14 +542,19 @@ class _PreviewCard extends StatelessWidget {
                             height: 44,
                             padding: const EdgeInsets.symmetric(horizontal: 18),
                             onTap: starting ? null : () => add.confirm(force: exists),
-                            child: confirm ??
-                                Text(
-                                  label,
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontWeight: FontWeight.w700,
+                            // Center: the pill's height is fixed, and without
+                            // it the label sits high and the spinner is
+                            // stretched into an oval.
+                            child: Center(
+                              child: confirm ??
+                                  Text(
+                                    label,
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.w700,
+                                    ),
                                   ),
-                                ),
+                            ),
                           )
                         : const SizedBox.shrink(),
                   ),
