@@ -12,12 +12,16 @@ ExecStart=/opt/navinix-companion/venv/bin/uvicorn app.asgi:app --host 0.0.0.0 --
 Restart=on-failure
 RestartSec=5
 
-# Hardening. The service only needs the music folder and temp space.
+# Hardening. "full" makes /usr, /boot and /etc read-only but leaves your music
+# folder (MUSIC_DIR in the env file) writable wherever it is, so changing it
+# never needs an edit here. For a stricter sandbox use ProtectSystem=strict and
+# add the folder: sudo systemctl edit navinix-companion
+#   [Service]
+#   ReadWritePaths=/your/music/folder
 NoNewPrivileges=true
 PrivateTmp=true
-ProtectSystem=strict
+ProtectSystem=full
 ProtectHome=true
-ReadWritePaths=/opt/navidrome/music
 
 [Install]
 WantedBy=multi-user.target

@@ -20,6 +20,10 @@ class Settings:
     navidrome_url: str = ""
     navidrome_user: str = ""
     navidrome_password: str = ""
+    jellyfin_url: str = ""
+    jellyfin_api_key: str = ""
+    # "navidrome", "jellyfin" or "none". Empty: whichever one is configured.
+    library_backend_setting: str = ""
     # Absolute path to yt-dlp. Empty: run it as `python -m yt_dlp`.
     yt_dlp_path: str = ""
     # Absolute path to deno (yt-dlp's JS runtime for YouTube). Empty: rely on PATH.
@@ -29,6 +33,17 @@ class Settings:
 
     def yt_dlp_command(self) -> List[str]:
         return [self.yt_dlp_path] if self.yt_dlp_path else [sys.executable, "-m", "yt_dlp"]
+
+    @property
+    def library_backend(self) -> str:
+        """Which media server to ask for a rescan after each add."""
+        if self.library_backend_setting:
+            return self.library_backend_setting
+        if self.navidrome_url:
+            return "navidrome"
+        if self.jellyfin_url:
+            return "jellyfin"
+        return "none"
 
     @property
     def can_rescan(self) -> bool:
@@ -42,19 +57,25 @@ def load_settings(env: Optional[Mapping[str, str]] = None) -> Settings:
         raise ConfigError("COMPANION_TOKEN must be set to a secret of at least 16 characters")
     music = env.get("MUSIC_DIR", "").strip()
     if not music:
-        raise ConfigError("MUSIC_DIR must be set (for example /opt/navidrome/music)")
+        raise ConfigError("MUSIC_DIR must be set (the folder your media server reads, for example /srv/music)")
     music_dir = Path(music)
     if not music_dir.is_dir():
         raise ConfigError("MUSIC_DIR %s is not a directory" % music_dir)
     if not os.access(music_dir, os.W_OK):
         raise ConfigError("MUSIC_DIR %s is not writable by this user" % music_dir)
     work = env.get("WORK_DIR", "").strip()
+    backend = env.get("LIBRARY_BACKEND", "").strip().lower()
+    if backend not in ("", "navidrome", "jellyfin", "none"):
+        raise ConfigError("LIBRARY_BACKEND must be navidrome, jellyfin or none")
     return Settings(
         token=token,
         music_dir=music_dir,
         navidrome_url=env.get("NAVIDROME_URL", "").strip().rstrip("/"),
         navidrome_user=env.get("NAVIDROME_USER", "").strip(),
         navidrome_password=env.get("NAVIDROME_PASSWORD", ""),
+        jellyfin_url=env.get("JELLYFIN_URL", "").strip().rstrip("/"),
+        jellyfin_api_key=env.get("JELLYFIN_API_KEY", "").strip(),
+        library_backend_setting=backend,
         yt_dlp_path=env.get("YT_DLP_PATH", "").strip(),
         deno_path=env.get("DENO_PATH", "").strip(),
         ffmpeg_path=env.get("FFMPEG_PATH", "").strip() or "ffmpeg",

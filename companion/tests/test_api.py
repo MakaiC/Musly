@@ -8,7 +8,7 @@ from mutagen.id3 import ID3
 from PIL import Image
 
 from app import jobs as jobs_mod
-from app import main, media, navidrome, ytdl
+from app import jellyfin, main, media, navidrome, rescan, ytdl
 from app.config import ConfigError, Settings, load_settings
 
 TOKEN = "x" * 20
@@ -59,7 +59,7 @@ def env(tmp_path, monkeypatch):
         calls["rescan"] += 1
         return None
 
-    monkeypatch.setattr(navidrome, "rescan", fake_rescan)
+    monkeypatch.setattr(rescan, "rescan_library", fake_rescan)
     client = TestClient(main.create_app(settings))
     return client, settings, calls
 
@@ -194,7 +194,7 @@ def test_duplicate_refused_unless_forced(env):
 
 def test_rescan_failure_is_a_warning_not_a_failure(env, monkeypatch):
     client, *_ = env
-    monkeypatch.setattr(navidrome, "rescan", lambda s: "Saved, but the Navidrome rescan failed (ConnectError).")
+    monkeypatch.setattr(rescan, "rescan_library", lambda s: "Saved, but the Navidrome rescan failed (ConnectError).")
     job = wait_done(client, client.post("/download", json={"url": URL}, headers=AUTH).json()["jobId"])
     assert job["status"] == "done" and "rescan failed" in job["warning"]
 
@@ -324,3 +324,48 @@ def test_config_requires_token_and_music_dir(tmp_path):
     s = load_settings({"COMPANION_TOKEN": TOKEN, "MUSIC_DIR": str(tmp_path), "YT_DLP_PATH": "/x/yt-dlp",
                        "NAVIDROME_URL": "http://n:4533/"})
     assert s.yt_dlp_command() == ["/x/yt-dlp"] and s.navidrome_url == "http://n:4533"
+
+
+# ---- other media servers -----------------------------------------------
+
+def test_jellyfin_rescan(monkeypatch, tmp_path):
+    seen = {}
+
+    class R:
+        def raise_for_status(self): pass
+
+    def fake_post(url, headers, timeout):
+        seen.update(url=url, headers=headers)
+        return R()
+
+    monkeypatch.setattr(jellyfin.httpx, "post", fake_post)
+    s = Settings(token=TOKEN, music_dir=tmp_path, jellyfin_url="http://jf:8096", jellyfin_api_key="KEY")
+    assert rescan.rescan_library(s) is None
+    assert seen == {"url": "http://jf:8096/Library/Refresh", "headers": {"X-Emby-Token": "KEY"}}
+
+    def boom(*a, **k):
+        raise RuntimeError("down")
+
+    monkeypatch.setattr(jellyfin.httpx, "post", boom)
+    assert "Jellyfin rescan failed" in rescan.rescan_library(s)
+
+
+def test_backend_choice(tmp_path):
+    base = dict(token=TOKEN, music_dir=tmp_path)
+    assert Settings(**base).library_backend == "none"
+    assert Settings(navidrome_url="http://n", **base).library_backend == "navidrome"
+    assert Settings(jellyfin_url="http://j", **base).library_backend == "jellyfin"
+    assert Settings(navidrome_url="http://n", jellyfin_url="http://j",
+                    library_backend_setting="jellyfin", **base).library_backend == "jellyfin"
+    assert "No media server" in rescan.rescan_library(Settings(**base))
+    assert "No media server" in rescan.rescan_library(
+        Settings(navidrome_url="http://n", library_backend_setting="none", **base))
+
+
+def test_config_reads_jellyfin_and_checks_backend(tmp_path):
+    env = {"COMPANION_TOKEN": TOKEN, "MUSIC_DIR": str(tmp_path), "JELLYFIN_URL": "http://j:8096/",
+           "JELLYFIN_API_KEY": "k"}
+    s = load_settings(env)
+    assert s.library_backend == "jellyfin" and s.jellyfin_url == "http://j:8096"
+    with pytest.raises(ConfigError):
+        load_settings(dict(env, LIBRARY_BACKEND="plex"))

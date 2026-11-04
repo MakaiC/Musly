@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Optional
 
-from . import media, navidrome, ytdl
+from . import media, rescan, ytdl
 from .config import Settings
 from .parser import ParsedTitle
 
@@ -71,7 +71,7 @@ class JobManager:
 
             # Only now does anything appear in the library, and atomically.
             shutil.move(str(tmp_mp3), str(target))
-            warning = navidrome.rescan(self.settings)
+            warning = rescan.rescan_library(self.settings)
             self._set(job, status="done", progress=1.0, file=target.name, warning=warning)
         except (ytdl.YtDlpError, media.MediaError) as e:
             self._set(job, status="failed", error=str(e))

@@ -4,7 +4,7 @@ A small FastAPI service that runs on the Navidrome server. The app's **Add**
 tab sends it a YouTube link; it checks the link, downloads the audio with
 yt-dlp, converts it to MP3 with ffmpeg, tags it (title, artist, album artist,
 album = title, square cover art) and saves it into the Navidrome music folder,
-then asks Navidrome to rescan.
+then asks your media server (Navidrome or Jellyfin) to rescan.
 
 For personal use. The token is the only protection: keep the service on your
 LAN (or behind a VPN) and don't expose it to the internet.
@@ -50,7 +50,12 @@ sudo useradd --system --create-home --home-dir /opt/navinix-companion --shell /u
 ls -ld /opt/navidrome/music          # who owns it?
 ```
 
-### Write access to `/opt/navidrome/music` (the usual snag)
+### Write access to the music folder (the usual snag)
+
+Examples below use `/opt/navidrome/music`; use your own `MUSIC_DIR`. The folder
+is only set in `/etc/navinix-companion.env`, so you can change it later
+(edit, `sudo systemctl restart navinix-companion`, and grant the `navinix` user
+access to the new folder as below).
 
 The `navinix` user must be able to **create files** in the music folder, and
 Navidrome must be able to **read** them. The simplest way is a shared group:
@@ -67,7 +72,7 @@ sudo systemctl restart navidrome
 
 If you'd rather not touch groups: `sudo setfacl -R -m u:navinix:rwX -d -m u:navinix:rwX /opt/navidrome/music`.
 Check with `sudo -u navinix touch /opt/navidrome/music/.test && sudo rm /opt/navidrome/music/.test`.
-The unit's `ReadWritePaths=` must name your actual music folder.
+The unit uses `ProtectSystem=full`, so any folder works without editing it.
 
 ### yt-dlp: use an absolute path (pipx and PATH)
 
@@ -142,7 +147,9 @@ address `http://<server-ip>:8787`, your token → **Test connection** → Save.
 |---|---|
 | `COMPANION_TOKEN` | required, 16+ characters |
 | `MUSIC_DIR` | required, must be writable |
-| `NAVIDROME_URL`, `NAVIDROME_USER`, `NAVIDROME_PASSWORD` | rescan; without them a warning is shown instead |
+| `LIBRARY_BACKEND` | `navidrome`, `jellyfin` or `none`; blank = whichever is configured |
+| `NAVIDROME_URL`, `NAVIDROME_USER`, `NAVIDROME_PASSWORD` | Navidrome rescan (`startScan`) |
+| `JELLYFIN_URL`, `JELLYFIN_API_KEY` | Jellyfin rescan (`POST /Library/Refresh`) |
 | `YT_DLP_PATH` | absolute path to yt-dlp (else `python -m yt_dlp`) |
 | `DENO_PATH` | absolute path to deno |
 | `FFMPEG_PATH` | default `ffmpeg` on `PATH` |
@@ -160,3 +167,15 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt
 ```
 
 yt-dlp, ffmpeg and Navidrome are mocked; nothing touches the network.
+
+## Other media servers
+
+Nothing but the rescan is specific to Navidrome. The MP3s are plain files with
+standard ID3 tags (title, artist, album artist, album, cover), which Jellyfin,
+Plex, Emby and others read. Jellyfin has built-in support: set `JELLYFIN_URL`
+and `JELLYFIN_API_KEY` (and `LIBRARY_BACKEND=jellyfin` if Navidrome's settings
+are still filled in). For anything else, set `LIBRARY_BACKEND=none` and let
+the server's own scheduled scan find the files, or add a module like
+`app/jellyfin.py` and a line in `app/rescan.py`. The server must read the
+folder in `MUSIC_DIR`; for Jellyfin, add it as a Music library. The app's
+playback side (Subsonic) is separate from the companion.
