@@ -1176,6 +1176,9 @@ class AppLocalizationsZh extends AppLocalizations {
   String get newTab => 'New';
 
   @override
+  String get addTab => 'Add';
+
+  @override
   String get playlistsSection => '歌单';
 
   @override

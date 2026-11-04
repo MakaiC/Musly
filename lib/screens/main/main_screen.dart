@@ -20,6 +20,7 @@ import 'package:musly/l10n/app_localizations.dart';
 import 'home_screen.dart';
 import 'library_screen.dart';
 import 'main_tabs.dart';
+import 'add_screen.dart';
 import 'new_screen.dart';
 import 'search_screen.dart';
 import 'tv_main_screen.dart';
@@ -183,6 +184,7 @@ class _MainScreenState extends State<MainScreen>
   final List<Widget> _screens = const [
     HomeScreen(),
     NewScreen(),
+    AddScreen(),
     LibraryScreen(),
     SearchScreen(),
   ];
@@ -902,6 +904,11 @@ class _MainScreenState extends State<MainScreen>
           label: l10n.newTab,
         ),
         GlassTabItem(
+          icon: CupertinoIcons.dot_radiowaves_left_right,
+          activeIcon: CupertinoIcons.dot_radiowaves_left_right,
+          label: l10n.addTab,
+        ),
+        GlassTabItem(
           icon: CupertinoIcons.collections,
           activeIcon: CupertinoIcons.collections_solid,
           label: l10n.library,
@@ -996,6 +1003,11 @@ class _MainScreenState extends State<MainScreen>
               icon: const Icon(CupertinoIcons.square_grid_2x2),
               activeIcon: const Icon(CupertinoIcons.square_grid_2x2_fill),
               label: l10n.newTab,
+            ),
+            BottomNavigationBarItem(
+              icon: const Icon(CupertinoIcons.dot_radiowaves_left_right),
+              activeIcon: const Icon(CupertinoIcons.dot_radiowaves_left_right),
+              label: l10n.addTab,
             ),
             BottomNavigationBarItem(
               icon: const Icon(CupertinoIcons.collections),

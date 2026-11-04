@@ -1192,6 +1192,9 @@ class AppLocalizationsSq extends AppLocalizations {
   String get newTab => 'New';
 
   @override
+  String get addTab => 'Add';
+
+  @override
   String get playlistsSection => 'PLAYLISTS';
 
   @override

@@ -1,6 +1,10 @@
 # Liquid Glass theme: progress & handoff
 
-Last updated 2026-11-02 (now-playing open/close transition + Navinix rename and icons, branch `player-anim`, merged into `master`); before that 2026-11-02 (collapsing bottom chrome, branch `collapsed-nav`, merged with the New tab); 2026-11-02 (New tab, branch `new-tab`); 2026-11-02 (sliders, branch `slider-work`); 2026-11-03 · branch `claude/sleepy-gates-rm92oh` (continues `claude/brave-bohr-80alrl`) · Flutter **3.47.7** (pinned in CI)
+Last updated 2026-11-04 (Add tab, stop 1 of 2: five-tab wiring + the screen shell on a mock service, branch `add-music`); before that 2026-11-02 (now-playing open/close transition + Navinix rename and icons, branch `player-anim`, merged into `master`); before that 2026-11-02 (collapsing bottom chrome, branch `collapsed-nav`, merged with the New tab); 2026-11-02 (New tab, branch `new-tab`); 2026-11-02 (sliders, branch `slider-work`); 2026-11-03 · branch `claude/sleepy-gates-rm92oh` (continues `claude/brave-bohr-80alrl`) · Flutter **3.47.7** (pinned in CI)
+
+## Standing rule for all agents
+
+**Every change to this repo, by any agent, MUST be reflected in this file in the same commit:** update "Last updated", the status table, the commits table, "What's built", "How it was verified", and "Gotchas" where relevant. A change without a matching doc update is incomplete.
 
 ## Status at a glance
 
@@ -12,6 +16,7 @@ Last updated 2026-11-02 (now-playing open/close transition + Navinix rename and 
 | 2. Bottom navigation bar | 🔶 **In progress (the user's call, 2026-11-03).** `GlassTabBar` is built and committed (`c48b696`); the open work isn't written down yet. Ask the user. The iPhone Duo side placement below is likely part of it. |
 | 3. Now-playing full-screen view | ⬜ **Not started (the user's call, 2026-11-03).** A first glass pass *is* committed (`5000ad8`) and was shown as renders, but the user hasn't accepted it. **Ask whether to iterate on it or redo it** before touching that code. |
 | 4. Library grid (album/artist cards) | ⬜ Not started |
+| 6. Add tab (YouTube → MP3) | 🔶 **Stop 1 of 2 built (branch `add-music`, 2026-11-04):** five-tab wiring and the Add screen on a **mock** service. **Stop 2 (the `companion/` service and the real client) not started.** See "Add tab" under "What's built". |
 | 5. New tab | 🔶 **First version built (branch `new-tab`, 2026-11-02), awaiting the user's review.** Five removable sections; **the user is choosing which to keep** (see "New tab" under "What's built"). Not committed yet. |
 
 **Statuses are the user's.** Where the branch has more code than the status suggests, the status wins: treat that code as an unaccepted draft.
@@ -31,7 +36,8 @@ Audited from `lib/screens/**` and the sheets, dialogs and menus they open (2026-
 - [ ] Now-playing: `lib/screens/player/now_playing_screen.dart` + `lib/widgets/now_playing/*`. The user marks it not started; an unaccepted draft is in `5000ad8`. The open/close animation (branch `player-anim`, see "Now-playing open/close transition") was added on top at the user's request, without changing the layout or controls.
 - [ ] Library grid: the cards in `lib/widgets/cards/` (`album_card`, `artist_card`, `media_card`) and the grid in `lib/screens/main/library_screen.dart`
 - [~] New tab: `lib/screens/main/new_screen.dart` + `lib/widgets/new_tab/*`. Built, awaiting the user's pick of sections (see "New tab" below).
-  - `MainScreen` now has 4 tabs: Home, **New**, Library, Search (Apple Music's order). Indices live in `MainTabs` (`lib/screens/main/main_tabs.dart`); **don't use bare numbers**. The Search easter egg now checks `MainTabs.search` (3).
+  - `MainScreen` now has **5 tabs**: Home, New, **Add**, Library, Search. Indices live in `MainTabs` (`lib/screens/main/main_tabs.dart`); **don't use bare numbers**. The Search easter egg checks `MainTabs.search` (4).
+- [~] Add tab: `lib/screens/main/add_screen.dart`. Shell built on a mock service; see "Add tab" below.
 
 **Main tabs (pages under the chrome)**
 - [ ] Home: `lib/screens/main/home_screen.dart`, with `quick_access_tile`, `media_card` and the favourite-playlists row (`widgets/navigation/favorite_playlists_section.dart`)
@@ -128,74 +134,19 @@ Audited from `lib/screens/**` and the sheets, dialogs and menus they open (2026-
 >
 > Whatever's chosen, `MainScreen.floatingChromeOverlap`/`scrollEndPadding` assume the chrome sits at the **bottom**. A side rail needs a leading/trailing inset for pages instead.
 
-## New tab: Add Music (planned feature, not started)
+## Add tab: YouTube to MP3 (phase 1 in progress; Lidarr is phase 2)
 
-The user wants **a new tab in the bottom row for adding new music**. This is a functional feature (new services, new credentials, a server-side helper), not a restyle. Notes below are the user's requirements, kept in full, plus what the audit found. Marked *(user)* = requested, *(suggested)* = mine, to confirm.
+The user asked (2026-11-04) for an **Add** tab that turns a pasted YouTube link into an MP3 in their Navidrome library. This replaces the earlier planning notes. Built state is under "Add tab" in "What's built".
 
-### Requirements *(user)*
+### Decisions (the user's)
 
-The tab has three parts:
-
-1. **Lidarr request UI.** Lidarr has its own REST API, separate from Navidrome's Subsonic API.
-   - A new screen and service in Musly calls Lidarr directly: **search for an artist or album, show results, and let the user trigger a "monitor and grab" request.**
-   - Musly would then hold **two sets of credentials/endpoints**: Navidrome's Subsonic API (library and playback, already working) and Lidarr's API (new, for search and request).
-   - It's the same idea as Overseerr/Ombi for Sonarr/Radarr: a friendly request UI in front of the arr app. The user's research found **no prebuilt equivalent for Lidarr** (the user's note; I haven't verified it), so this is custom work.
-2. **YouTube link to MP3 via yt-dlp.** (The user wrote "yt-dip"; I'm reading it as yt-dlp. **Confirm.**)
-   - The user pastes a YouTube link into a text box.
-   - **The server** receives the request, **determines whether the link is valid**, then **downloads it as an `.mp3`**.
-3. **Further features on the YouTube component, "like" custom albums.** The user's example: **creating custom albums that are generated automatically and sorted automatically** for the different songs they get through the YouTube feature. "Other features like" this are expected, but only this one was described, so **ask what else**.
-
-The user's notes also ended with an empty bullet, so more may be coming.
-
-### Findings from the codebase audit
-
-- **Musly's existing yt-dlp code can't do part 2.** `lib/services/ytdlp_service.dart` is for streaming, search and metadata of the YouTube Music source:
-  - It runs a local `yt-dlp` binary on desktop and a `MethodChannel` (`com.devid.musly/ytdlp`) on Android.
-  - **On iOS, `resolveStreamInfo` throws `UnsupportedError('YT Stream is disabled on iOS')`.** The user is on an iPhone, and iOS can't run yt-dlp or ffmpeg anyway.
-  - So **downloading and converting to MP3 has to happen on the server**, as the user described. That means a **companion service on the user's server** (it runs yt-dlp + ffmpeg, validates the URL, writes the MP3 into the Navidrome music folder, and triggers a rescan). **Musly has no such service today, and it isn't in this repo.**
-- **Credentials.** `StorageService` keeps server profiles in `shared_preferences` and passwords in `flutter_secure_storage` (via `_safeSecureRead`/`_safeSecureWrite`, with a fallback).
-  - `ServerConfig` (with `serverFamily`: subsonic, jellyfin, youtube, local) drives library and playback.
-  - Lidarr and the downloader should be a **separate "integration config"**, not new `ServerConfig` families, and the API keys belong in secure storage.
-  - `ServerConfig` already models a LAN URL, self-signed certificates and client certificates. The same options are worth offering for these endpoints.
-- **iOS networking is already fine.** `Info.plist` sets `NSAllowsArbitraryLoads` and has a local-network usage description, so plain-HTTP LAN endpoints (Lidarr is often `http://host:8686`) work without platform config changes.
-- **No rescan call exists.** `SubsonicService` has no `startScan`/`getScanStatus`. After Lidarr imports a download or the companion writes an MP3, the new music needs a Navidrome rescan to show up. Either the companion does it (preferred, since it doesn't touch the Subsonic client), or the client gets a small addition.
-- **Playlists exist, albums don't (yet).** Musly can already create and update playlists through the Subsonic API (`createPlaylist`/`updatePlaylist`). Navidrome builds **albums from file tags**, so a custom *album* means the companion writes the album/albumartist tags (and probably the folder layout); a custom *playlist* is only a list.
-- **Tab bar.** `GlassTabBar` takes a list of items, so a 4th tab is easy. At 393pt each tab would be ~90pt wide.
-  - **The Search easter egg is hard-coded to index 2** (`_onGlassTabSelected` and the classic `_buildBottomNav`). Putting the tab before Search breaks it.
-  - Other places that list the tabs: `_screens`, `_buildBottomNav`, `DesktopNavigationSidebar`, and an l10n label (`l10n.yaml`/arb, Crowdin).
-
-### Suggested shape *(suggested)*
-
-- **Request flow (Lidarr):**
-  - Search artist/album, with results showing cover, name and whether it's already in the library.
-  - A "Request" action adds it as monitored and triggers a search.
-  - A status list: queued, downloading, imported, failed.
-  - Lidarr's own indexers and download client must already be set up; the app only requests.
-- **Lidarr API outline.** This is from my memory of Lidarr's v1 API, **so check it against the user's instance (its Swagger/API docs) before building**:
-  - Auth by `X-Api-Key` header, base `/api/v1/`.
-  - Lookups: `artist/lookup?term=` and `album/lookup?term=`.
-  - Adding an artist needs a root folder, a quality profile and a metadata profile (from `rootfolder`, `qualityprofile`, `metadataprofile`), plus `monitored` and `addOptions`.
-  - Searching/grabbing: `POST command` with `ArtistSearch`/`AlbumSearch`.
-  - Status: `queue`, `wanted/missing`, history.
-- **Link flow (yt-dlp):**
-  - A paste box, with a clipboard-paste shortcut.
-  - The server validates the URL (YouTube/YouTube Music/youtu.be, single video vs playlist) and checks availability without downloading.
-  - The app shows a preview (title, channel, cover, length) before the user confirms.
-  - Then a progress/queue state, and a clear error for private, region-blocked or invalid links.
-  - Duplicate detection against the library.
-  - Metadata cleanup and embedded cover art, so the result sorts properly in Navidrome.
-- **Custom albums:** the user decides how songs are grouped. Candidates: by source/collection name, by date added (e.g. "Added 2026-11"), by artist, or by a user-defined rule, with the tags written automatically at download time.
-
-### Open questions (need the user)
-
-1. **One backend or two?** Either the app talks to Lidarr directly and to a companion service for yt-dlp (three endpoints), or **one companion backend fronts both** (one credential in the app, and Lidarr's powerful API key stays on the server). The user said "two sets" of credentials, which assumes the direct route.
-2. **Where does the companion live and who builds it?** It's outside this Flutter repo. A new repo, a container next to Navidrome/Lidarr, or a script in `tools/`? Its API also needs auth.
-3. **How should custom albums be defined and sorted?** See the candidates above. Albums (tags) or playlists?
-4. **Tab name, icon, position.** For example `CupertinoIcons.plus_circle`/`cloud_download`, and before or after Search. It also needs an l10n label.
-5. **Classic mode too?** The tab is a feature, so classic probably needs it as well; otherwise it only exists when the glass toggle is on.
-6. **Ground rules.** The current rules say don't touch settings screens, the Subsonic client or state management. This feature needs credential entry (a new settings section or in-tab setup), new state and possibly a `startScan` call. **Get explicit approval for each**, as the settings padding fix was.
-7. **Distribution risk.** A feature that downloads YouTube audio may conflict with YouTube's terms and could be a problem in App Store review if the app is distributed publicly. Consider keeping it opt-in, off by default, or only active when a companion endpoint is configured.
-8. **What else is planned?** The notes said "other features like" custom albums and ended with an empty bullet.
+- **Name, icon, place:** "Add"; `CupertinoIcons.dot_radiowaves_left_right` in both tab bars (matches iOS's Radio icon), `Icons.sensors` in the desktop sidebar. Middle of five tabs: Home 0, New 1, **Add 2**, Library 3, Search 4. Classic mode gets it too, through the same `MainTabs` list. l10n key `addTab` (hand-added to the tracked generated files; don't run gen-l10n).
+- **Architecture:** a companion service (Python, FastAPI) on the user's Navidrome server (Debian 13), in `companion/` in this repo, run as a systemd service. The app talks to it directly with a bearer token the user types into the tab's setup card (never hard-coded; personal use only). iOS can't run yt-dlp or ffmpeg, so the work happens on the server. **Phase 2 (not in this task): Lidarr**, called directly by the app with its own URL and API key (`IntegrationConfigStore` already has a slot for it).
+- **Custom albums = "option D":** one single per song. Album = song title, album artist = the artist, art = the video thumbnail centre-cropped square and embedded in the MP3.
+- **Permissions granted for this task:** the new tab and screen with its credential setup inside the tab (not in Settings), new services, providers and secure storage. Everything else in the ground rules still applies: no settings screens, auth/login, Subsonic client, existing state management or playback logic.
+- **Process:** two stops. **Stop 1** = tab wiring + the Part B shell on a mock service (done). **Stop 2** = the companion (Part A: endpoints `/health`, `/validate`, `/download`, `/jobs/{id}`; yt-dlp + ffmpeg + mutagen + Pillow; the title parser with pytest tests; README with the pipx/Deno/permissions notes; a systemd unit) and the real Dart client.
+- **Lidarr, phase 2 notes (from my memory of its v1 API; check against the user's instance first):** `X-Api-Key` header, base `/api/v1/`; `artist/lookup?term=` and `album/lookup?term=`; adding needs a root folder, quality profile and metadata profile; `POST command` with `ArtistSearch`/`AlbumSearch`; status from `queue`, `wanted/missing` and history. The UI would be search results with an in-library flag, a Request action and a status list. The user's research found no prebuilt Overseerr-style request UI for Lidarr.
+- **Distribution risk** (YouTube's terms, App Store review) was raised earlier; the user says the app is for personal use.
 
 ## Scope and ground rules (from the user)
 
@@ -227,7 +178,8 @@ Restyle these components with an iOS 26/27 Liquid Glass look, in this order: min
 | `c48b696` | `GlassTabBar` (`lib/widgets/navigation/glass_tab_bar.dart`) + its widget tests; `_buildGlassBottomNav` uses it |
 | `5000ad8` | Now-playing glass: `GlassIconButton`, `ArtworkBackdrop`, `GlassStyle.control`, `GlassContainer.visibility`, glass branches in the now-playing screen and widgets, + tests |
 | *(branch `slider-work`)* | `ThickBarSlider`: thumb-less thick-bar scrubber and volume slider (both modes), + tests |
-| *(branch `new-tab`, uncommitted)* | New tab: `NewScreen`, the five section widgets, `MainTabs`, the 4th tab in both tab bars and the desktop sidebar, the `newTab` l10n key, + tests |
+| *(branch `add-music`)* | Add tab, stop 1: `MainTabs` 5 tabs, `AddScreen`, `AddProvider`, `CompanionApi` + `MockCompanionService`, `IntegrationConfigStore`, the `addTab` l10n key, + tests |
+| *(branch `new-tab`, merged)* | New tab: `NewScreen`, the five section widgets, `MainTabs`, the 4th tab in both tab bars and the desktop sidebar, the `newTab` l10n key, + tests |
 | *(branch `collapsed-nav`, merged into `master`)* | Collapsing chrome: `GlassChromeScrollTracker` + `GlassTabButton`, `collapse` on `GlassTabBar`/`MiniPlayer`, the morph in `main_screen.dart`, + tests |
 | *(branch `player-anim`)* | App renamed **Navinix** (launcher name + app title) and new light/dark/tinted icons for iOS and Android, with the renderer in `tools/app_icon/` |
 | *(branch `player-anim`)* | Now-playing open/close transition: `NowPlayingRoute` / `NowPlayingTransition` / `NowPlayingFrame` / `NowPlayingArtAnchor` / `NowPlayingCapsuleAnchor`, `GlassPresence`, + tests. v3: close slides to the bottom, then merges up into the capsule as it reaches out |
@@ -568,6 +520,30 @@ The user asked (2026-11-02) for a New tab loosely modelled on Apple Music's, usi
 - Whether Rediscover should also count albums you rated highly; it can't use "last played" dates because `Album` doesn't parse `played`. Parsing it would let it say "not played in N months", but that touches the model.
 - Localising section titles (they're English, like Home's).
 - The tab icon.
+### Add tab (branch `add-music`, stop 1 of 2, 2026-11-04)
+
+**Tab wiring.** `MainTabs` is home 0, newTab 1, add 2, library 3, search 4. Updated to match: `_screens`, the classic `_buildBottomNav`, `_glassTabItems`, `DesktopNavigationSidebar`, the back button (still goes to `MainTabs.home`) and both Search easter-egg checks (`MainTabs.search`). No bare indices remain. TV is untouched.
+- **Collapsed chrome:** `_collapsedLayout()` needed no change. Its rules use `MainTabs` (leading = current tab, or Home on Search; trailing = Search), so Search is now index 4 and Add behaves like New/Library (`[Add] [mini] [Search]`). `GlassTabBar.slotCentre` and `_kIconCentreOffset` (7pt) hold with five tabs; a test checks every icon and label position.
+- **Fit with five tabs:** each slot is (369 − 8) / 5 = 72.2pt; the bubble is 68.2pt. The longest label, "Library" at 10pt w600, fits (checked with Roboto from the SDK, not SF; **not yet seen on device**).
+
+**Files (all new except the wiring above)**
+- `lib/screens/main/add_screen.dart`: `AddScreen` owns its `AddProvider` (nothing registered in `main.dart`; the `IndexedStack` keeps it alive across tabs). Constructor takes optional `apiFactory`, `store`, `pollInterval` for tests.
+- `lib/providers/add_provider.dart`: `AddProvider` (config state `loading/notConfigured/ready`, gear-driven `editingConfig`, flow phase `idle/validating/preview/starting/downloading/done/failed`, the session `history`, polling with `Timer.periodic`, `retry()`, `reset()`, `normalizeUrl`: adds `http://` to bare hosts, trims slashes).
+- `lib/services/companion_service.dart`: `CompanionApi` (the four calls), the models (`CompanionHealth`, `VideoPreview`, `ParsedTitle`, `DownloadJob`, `JobStatus`), `CompanionException` with `CompanionErrorKind` (`notConfigured, unauthorized, unreachable, timeout, invalidLink, alreadyExists, server`; `retryable` only for unreachable/timeout/server), `CompanionApiFactory`, and **`MockCompanionService`** (the stop-1 stand-in; **the real HTTP client is stop 2**).
+  - The mock accepts only token `demo` (so the setup card can be tried), YouTube hosts only, rejects playlists and links containing `private`, treats links containing `exists` as already in the library, fails a job for links containing `fail`, and walks a job through queued → downloading → converting → tagging → done, one step per poll.
+- `lib/services/integration_config_store.dart`: `IntegrationConfigStore` keeps each `Integration` (`companion`, `lidarr`) as a URL + secret in `flutter_secure_storage`, with the same fall-back-to-obfuscated-`shared_preferences` approach as `StorageService` but its own key and entropy, **without touching `StorageService`**. It also checks the fallback when secure storage returns null (a write may have fallen back).
+
+**Screen** (`add_screen.dart`). A 34pt large title "Add" with a gear (when configured), then:
+- **loading:** a spinner. **not configured / gear:** the inline setup card (address, token, **Test connection** → `/health`, Save, Cancel when editing).
+- **ready:** the paste card (field, **Paste from clipboard**, **Check**; Enter also validates), then by phase: an empty hint; a spinner while checking; the **preview card** (16:9 thumbnail, title, channel · duration, Artist / Song / Album rows, an "already in your library" warning with an "Add anyway" confirm); a progress card (indeterminate while queued, then a bar and the stage name); the done card (file name, a warning if the rescan failed, "Add another"); the error card (message, **Retry** only when retryable, "Start over"). A "This session" list of the last 10 adds with live status.
+- Ends with `MainScreen.scrollEndPadding(context, 40)`. Text is English like the New tab; only the tab label is localised.
+- **Glass (`newTabUsesGlass`):** the only glass is the **Confirm pill, a `GlassContainer.capsule` over the thumbnail** (which it refracts). No nesting, no fades over glass, none on flat backgrounds. **Classic:** a themed `FilledButton` under the details. Cards use `AppTheme` card colours; accent comes from the theme in both modes.
+- Not parsed in Dart: the server does the title parsing, so the app shows `parsed` as given (no mirrored parser; the mock returns a canned one).
+
+**Tests** (all pass): `test/widgets/main_tabs_wiring_test.dart` (the real `MainScreen`: constants; classic taps, then the easter egg at index 4; the glass bar's items and taps, easter egg again), `test/widgets/five_tab_chrome_test.dart` (5-tab icon/label positions and fit, bubble size, taps, collapsed circle for each tab), `test/widgets/add_screen_test.dart` (store round-trip and fallback; URL normalising; loading, setup, test connection, save, gear, paste, rejected links, playlists, preview → progress → done → session list, exists warning, failed job + Retry, unreachable + Retry, glass pill placement, classic button).
+
+**Stop 2, still to do:** `companion/` (Part A), the real `CompanionService` (HTTP client with timeouts mapping to `CompanionErrorKind`, swapped in for the mock in `AddScreen`), and a `force` checkbox/flow for duplicates if wanted (the provider already supports `confirm(force: true)`).
+
 ### App name and icon (branch `player-anim`, 2026-11-02)
 
 The user asked to rename the app **Navinix** and to give it a new icon, with separate light- and dark-mode versions. Their references were two JPGs from their Downloads (`app logo.jpg` light, `app image 2.jpg` dark). Both are Apple's iOS 26 Apple Music icon art: a glass tile with a beamed note and chromatic rim streaks.
@@ -657,6 +633,7 @@ Builds with the iOS 27 SDK crash on launch without it (`UIApplicationEvaluateRun
   - **Travelling Search (fourth round, 4 tabs):** the button starts at (331.9, 780), which is exactly the bar's Search icon. It overshoots to 356.2 before settling at its corner (329,766–381,818), and on expanding returns to exactly (331.9, 780). All 109 widget tests pass.
   - **After merging `master` (the New tab):** Search moved from index 2 to `MainTabs.search` (3). The collapsed row's rules now use `MainTabs` instead of bare numbers, and `_glassTabItems` includes New. All widget tests re-run after the merge.
 - **Now-playing transition v3 (2026-11-02, macOS, `flutter test`, Skia):** the 16 transition tests and all 101 widget tests pass; the analyzer is at the 16-info baseline. The glass close was filmed frame by frame (see the section). The trial merge with `collapsed-nav` passes 112 widget tests, plus the collapsed-capsule harness (see "Integration with collapsing chrome"). No renders, films or device check yet. The glass-under-fade guarantee was checked on the blur fallback's `BackdropFilter`; the shader path uses the same switch (`presence <= 0` skips both).
+- **Add tab, stop 1 (2026-11-04, macOS, `flutter test`, Skia):** all 153 widget tests pass (the new ones: 2 in `main_tabs_wiring_test`, 4 in `five_tab_chrome_test`, 17 in `add_screen_test`); the analyzer is at the 16-info baseline. `MainScreen` was mounted for real in classic and then glass mode (one mount per process). **Not verified:** a device, the refraction shader over the thumbnail, the five-tab bar and labels in SF, the real companion.
 - **Not verified:** a real device, Metal (iOS), the GLES fallback on older Android, on-device performance, and an Xcode compile of the UIScene changes.
 
 ## Open feedback and issues
@@ -667,7 +644,8 @@ Builds with the iOS 27 SDK crash on launch without it (`UIApplicationEvaluateRun
   - **Scroll smoothness.** Each is a single `GlassStyle` field.
 - **Now-playing:** waiting on the user's review (they got before/after renders). Likely knobs: the backdrop blur/saturation/drift (`_BlurredArtwork`), the scrim curve (`ArtworkBackdrop`), the pause shrink (`_buildArtwork`), button sizes, and `GlassStyle.control`.
 - **Sliders:** waiting on the user's look on device. Knobs: idle/active thickness, hit height, resize duration (`kThickBar*`). **Classic mode changed too**: the user's request covered both sliders without a mode qualifier, unlike the "classic stays unchanged" rule for glass work. If they want classic back, gate on `VolumeSlider.glass` and add a `glass` flag to `PlaybackProgressSlider`.
-- **Tab bar:** tuning knobs if the user asks (they got GIFs of the tap slide and drag). Likely tuning knobs: tap slide duration/curve (`_slideTo`, `_kSlideCurve`), snap spring (`_kSnapSpring`), lift size (`_kLiftScale`), bubble fill (`_BubblePainter`), and the lens falloff (`_proximity`). Colour comes only from the bubble mask; don't reintroduce per-tab colour fades or snaps. With 4 tabs each slot is narrower; check the bubble width and labels on device.
+- **Tab bar:** tuning knobs if the user asks (they got GIFs of the tap slide and drag). Likely tuning knobs: tap slide duration/curve (`_slideTo`, `_kSlideCurve`), snap spring (`_kSnapSpring`), lift size (`_kLiftScale`), bubble fill (`_BubblePainter`), and the lens falloff (`_proximity`). Colour comes only from the bubble mask; don't reintroduce per-tab colour fades or snaps. With 5 tabs each slot is ~72pt (bubble 68pt); check the bubble width and labels on device.
+- **Add tab:** stop 1 awaits the user's look and "go" for stop 2 (the companion and the real client). Try the shell with the mock: token `demo`; links with `exists`, `fail`, `private` or `playlist` show the other states.
 - **New tab:** waiting on the user's section picks and a device look. See "New tab" under "What's built" for the open questions.
 - **Collapsing chrome:** waiting on the user's look on device. History: the first version (2026-11-02) cross-dissolved the full chrome into a separate row with a play/pause-only capsule, and expanded on any scroll up. The user rejected it: they wanted one fluid move, the mini-player keeping its art, title and artist, play/pause at its far right, and expanding only on a tab press or at the top. Third round (same day): the user asked for bounce and a slightly slower pace (now the underdamped spring), and set the tab rule (Search always trailing; Home leading on Search). Fourth round: tabs that move travel to their new spot (Search from its slot), and the row's tab rule is kept in one function for the user's upcoming extra tab. Possible knobs if it feels off: the spring's stiffness/ratio and the stagger `Interval`s.
 - **Blur fallback mid-dissolve:** on the fallback path (Skia, web, tests) a glass surface at low `visibility` shows a saturated smear of what's behind it, visible mid-collapse in renders. The shader path (iOS) isn't affected. Pre-existing in `GlassContainer`'s fallback; scale its saturation by `visibility` if it matters.
@@ -710,6 +688,9 @@ Builds with the iOS 27 SDK crash on launch without it (`UIApplicationEvaluateRun
 - **`flutter.dev`/`docs.flutter.dev` are blocked** by the session network policy. Use the docs source at `raw.githubusercontent.com/flutter/website/main/sites/docs/src/content/...`. iOS engine headers aren't in the Linux SDK; get them from `raw.githubusercontent.com/flutter/flutter/3.47.7/engine/src/flutter/shell/platform/darwin/ios/framework/Headers/`.
 - **The GitHub API only reaches `makaic/musly`**; raw.githubusercontent.com works for public repos.
 - **A stop hook requires all changes committed and pushed** before a turn ends.
+
+- **Never `git checkout -- lib/l10n/` after hand-adding a key.** It reverts the hand edits too (the arb and the generated getters), not just the regeneration churn. Redo the edit instead, or revert only the files you didn't change. `flutter analyze`/`flutter test` run `pub get`, so check `git diff --stat -- lib/l10n` shows only your insertions (a new key was +3 lines per locale file, CRLF).
+- **macOS `sed -i` needs an argument (`sed -i ''`)**; use the Edit tool or Python in binary mode instead.
 
 ### Testing
 - **On macOS, `flutter test --enable-impeller` works without extra setup** (the shader loads; `GlassContainer.refractionAvailable` is true). But its offscreen renders show artifacts in glass that isn't being changed (white bands across the mini-player), so don't judge looks from them. Use them for behaviour, and the Linux/lavapipe setup below or a device for looks.

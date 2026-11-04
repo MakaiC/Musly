@@ -1211,6 +1211,10 @@
   "@newTab": {
     "description": "Label of the New tab (recently added and suggested music) in the tab bar and sidebar, and its page title"
   },
+  "addTab": "Add",
+  "@addTab": {
+    "description": "Label of the Add tab (add music from a YouTube link) in the tab bar and sidebar, and its page title"
+  },
   "playlistsSection": "PLAYLISTS",
   "@playlistsSection": {
     "description": "Uppercase section header for playlists in the desktop sidebar"

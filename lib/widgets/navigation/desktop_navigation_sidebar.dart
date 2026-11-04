@@ -159,6 +159,14 @@ class _DesktopNavigationSidebarState extends State<DesktopNavigationSidebar> {
             onTap: () => widget.onDestinationSelected(MainTabs.newTab),
           ),
           _NavItem(
+            icon: Icons.sensors,
+            activeIcon: Icons.sensors,
+            label: l10n.addTab,
+            isSelected: widget.selectedIndex == MainTabs.add,
+            isCollapsed: _isCollapsed,
+            onTap: () => widget.onDestinationSelected(MainTabs.add),
+          ),
+          _NavItem(
             icon: Icons.search_rounded,
             activeIcon: Icons.search_rounded,
             label: l10n.search,

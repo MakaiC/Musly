@@ -2308,6 +2308,12 @@ abstract class AppLocalizations {
   /// **'New'**
   String get newTab;
 
+  /// Label of the Add tab (add music from a YouTube link) in the tab bar and sidebar, and its page title
+  ///
+  /// In en, this message translates to:
+  /// **'Add'**
+  String get addTab;
+
   /// Uppercase section header for playlists in the desktop sidebar
   ///
   /// In en, this message translates to:
