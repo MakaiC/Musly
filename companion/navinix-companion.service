@@ -1,0 +1,23 @@
+[Unit]
+Description=Navinix companion (YouTube to MP3 for Navidrome)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=navinix
+Group=navinix
+WorkingDirectory=/opt/navinix-companion/app
+EnvironmentFile=/etc/navinix-companion.env
+ExecStart=/opt/navinix-companion/venv/bin/uvicorn app.asgi:app --host 0.0.0.0 --port 8787
+Restart=on-failure
+RestartSec=5
+
+# Hardening. The service only needs the music folder and temp space.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/navidrome/music
+
+[Install]
+WantedBy=multi-user.target

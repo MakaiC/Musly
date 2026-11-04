@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import 'package:dio/dio.dart';
+
 /// Why a call to the companion service failed. The UI picks its message and
 /// whether to offer Retry from this, so keep the kinds coarse and stable.
 enum CompanionErrorKind {
@@ -117,8 +119,8 @@ class DownloadJob {
   bool get finished => status == JobStatus.done || status == JobStatus.failed;
 }
 
-/// The companion service's HTTP API. [MockCompanionService] fakes it for the
-/// shell; the real client implements the same four calls.
+/// The companion service's HTTP API. [CompanionService] is the real client;
+/// [MockCompanionService] is a test double.
 abstract class CompanionApi {
   Future<CompanionHealth> health();
   Future<VideoPreview> validate(String url);
@@ -132,7 +134,173 @@ abstract class CompanionApi {
 /// values that aren't saved yet.
 typedef CompanionApiFactory = CompanionApi Function(String baseUrl, String token);
 
-/// A stand-in for the companion service, used until the real client lands.
+/// The real client for the companion service in `companion/`.
+class CompanionService implements CompanionApi {
+  CompanionService({required String baseUrl, required String token, Dio? dio})
+      : _dio = dio ?? Dio() {
+    _dio.options
+      ..baseUrl = baseUrl
+      ..connectTimeout = const Duration(seconds: 8)
+      ..sendTimeout = const Duration(seconds: 15)
+      ..receiveTimeout = const Duration(seconds: 30)
+      ..headers['Authorization'] = 'Bearer $token'
+      ..headers['Accept'] = 'application/json'
+      // Handle every status ourselves, so each maps to a clear error kind.
+      ..validateStatus = (_) => true;
+  }
+
+  final Dio _dio;
+
+  /// `/validate` and `/download` run yt-dlp on the server, which can take a
+  /// while on a slow YouTube day.
+  static const _slow = Duration(seconds: 90);
+
+  Future<Map<String, dynamic>> _call(
+    String method,
+    String path, {
+    Map<String, dynamic>? body,
+    Duration? timeout,
+  }) async {
+    final Response<dynamic> response;
+    try {
+      response = await _dio.request<dynamic>(
+        path,
+        data: body,
+        options: Options(method: method, receiveTimeout: timeout),
+      );
+    } on DioException catch (e) {
+      switch (e.type) {
+        case DioExceptionType.connectionTimeout:
+        case DioExceptionType.sendTimeout:
+        case DioExceptionType.receiveTimeout:
+          throw const CompanionException(
+            CompanionErrorKind.timeout,
+            'The server took too long to answer.',
+          );
+        default:
+          throw const CompanionException(
+            CompanionErrorKind.unreachable,
+            'Can\'t reach the server. Check the address and that the '
+            'service is running.',
+          );
+      }
+    }
+    final status = response.statusCode ?? 0;
+    final data = response.data;
+    final json = data is Map ? Map<String, dynamic>.from(data) : null;
+    final message = json?['error'] is String ? json!['error'] as String : null;
+    if (status >= 200 && status < 300) {
+      if (json == null) {
+        throw const CompanionException(
+          CompanionErrorKind.server,
+          'That address answered, but it isn\'t the companion service.',
+        );
+      }
+      return json;
+    }
+    switch (status) {
+      case 401:
+      case 403:
+        throw CompanionException(
+          CompanionErrorKind.unauthorized,
+          message ?? 'The token was rejected.',
+        );
+      case 409:
+        throw CompanionException(
+          CompanionErrorKind.alreadyExists,
+          message ?? 'That song is already in your library.',
+        );
+      case 422:
+        throw CompanionException(
+          CompanionErrorKind.invalidLink,
+          message ?? 'That link can\'t be added.',
+        );
+      default:
+        throw CompanionException(
+          CompanionErrorKind.server,
+          message ?? 'The server answered with an error ($status).',
+        );
+    }
+  }
+
+  static String _str(Map<String, dynamic> j, String key) {
+    final v = j[key];
+    if (v is String) return v;
+    throw CompanionException(
+      CompanionErrorKind.server,
+      'The server\'s reply is missing "$key".',
+    );
+  }
+
+  @override
+  Future<CompanionHealth> health() async {
+    final j = await _call('GET', '/health');
+    return CompanionHealth(
+      version: _str(j, 'version'),
+      ytDlpVersion: _str(j, 'ytDlpVersion'),
+    );
+  }
+
+  @override
+  Future<VideoPreview> validate(String url) async {
+    final j = await _call('POST', '/validate', body: {'url': url}, timeout: _slow);
+    final parsed = j['parsed'];
+    if (parsed is! Map) {
+      throw const CompanionException(
+        CompanionErrorKind.server,
+        'The server\'s reply is missing "parsed".',
+      );
+    }
+    final p = Map<String, dynamic>.from(parsed);
+    return VideoPreview(
+      url: url,
+      videoId: _str(j, 'videoId'),
+      title: _str(j, 'title'),
+      channel: j['channel'] is String ? j['channel'] as String : '',
+      durationSeconds: (j['durationSeconds'] as num?)?.toInt() ?? 0,
+      thumbnailUrl: j['thumbnailUrl'] as String?,
+      parsed: ParsedTitle(
+        artist: _str(p, 'artist'),
+        albumArtist: _str(p, 'albumArtist'),
+        title: _str(p, 'title'),
+      ),
+      alreadyExists: j['alreadyExists'] == true,
+    );
+  }
+
+  @override
+  Future<String> startDownload(String url, {bool force = false}) async {
+    final j = await _call(
+      'POST',
+      '/download',
+      body: {'url': url, 'force': force},
+      timeout: _slow,
+    );
+    return _str(j, 'jobId');
+  }
+
+  @override
+  Future<DownloadJob> job(String id) async {
+    final j = await _call('GET', '/jobs/${Uri.encodeComponent(id)}');
+    final status = JobStatus.values.where((s) => s.name == j['status']);
+    if (status.isEmpty) {
+      throw const CompanionException(
+        CompanionErrorKind.server,
+        'The server sent an unknown job status.',
+      );
+    }
+    return DownloadJob(
+      id: id,
+      status: status.first,
+      progress: (j['progress'] as num?)?.toDouble().clamp(0.0, 1.0) ?? 0,
+      error: j['error'] as String?,
+      file: j['file'] as String?,
+      warning: j['warning'] as String?,
+    );
+  }
+}
+
+/// A stand-in for the companion service, for tests.
 ///
 /// Accepts YouTube links only, rejects playlists, treats any link containing
 /// `exists` as already in the library, and walks a job through its states one

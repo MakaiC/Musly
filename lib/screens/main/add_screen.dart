@@ -15,9 +15,9 @@ import 'package:musly/widgets/widgets.dart';
 /// The Add tab: paste a YouTube link, check it, and have the companion
 /// service on the user's server turn it into an MP3 in the library.
 ///
-/// Owns its [AddProvider] (nothing is registered app-wide). [api] and
-/// [store] exist for tests; by default the screen talks to the mock service
-/// until the real client is wired in.
+/// Owns its [AddProvider] (nothing is registered app-wide). [apiFactory],
+/// [store] and [pollInterval] exist for tests; by default the screen talks to
+/// the real [CompanionService].
 class AddScreen extends StatefulWidget {
   const AddScreen({super.key, this.apiFactory, this.store, this.pollInterval});
 
@@ -38,7 +38,7 @@ class _AddScreenState extends State<AddScreen> {
     _provider = AddProvider(
       store: widget.store ?? IntegrationConfigStore(),
       apiFactory: widget.apiFactory ??
-          (url, token) => MockCompanionService(clientToken: token),
+          (url, token) => CompanionService(baseUrl: url, token: token),
       pollInterval: widget.pollInterval ?? const Duration(seconds: 1),
     )..load();
   }
@@ -541,7 +541,7 @@ class _PreviewCard extends StatelessWidget {
                             key: const Key('add-confirm'),
                             height: 44,
                             padding: const EdgeInsets.symmetric(horizontal: 18),
-                            onTap: starting ? null : () => add.confirm(),
+                            onTap: starting ? null : () => add.confirm(force: exists),
                             child: confirm ??
                                 Text(
                                   label,
@@ -598,7 +598,7 @@ class _PreviewCard extends StatelessWidget {
                   const SizedBox(height: 16),
                   FilledButton(
                     key: const Key('add-confirm'),
-                    onPressed: starting ? null : () => add.confirm(),
+                    onPressed: starting ? null : () => add.confirm(force: exists),
                     child: confirm ?? Text(label),
                   ),
                 ],

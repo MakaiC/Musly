@@ -259,6 +259,18 @@ void main() {
       await _check(tester, '$_link&exists=1');
       expect(find.byKey(const Key('add-exists-warning')), findsOneWidget);
       expect(find.text('Add anyway'), findsOneWidget);
+
+      // "Add anyway" must send force, or the server answers 409.
+      await tester.ensureVisible(find.byKey(const Key('add-confirm')));
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('add-confirm')));
+      await tester.pump(const Duration(milliseconds: 50));
+      expect(find.byKey(const Key('add-progress')), findsOneWidget);
+      expect(find.byKey(const Key('add-error-message')), findsNothing);
+      for (var i = 0; i < 8; i++) {
+        await tester.pump(const Duration(milliseconds: 100));
+      }
+      expect(find.text('Added to your library'), findsOneWidget);
     });
 
     testWidgets('a failed job shows its error and Retry', (tester) async {
